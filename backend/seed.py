@@ -5,9 +5,13 @@ par bot.py en mode webrtc quand aucun numéro Twilio n'est composé.
 import json
 import os
 
+from dotenv import load_dotenv
+
 from backend.database import Base, SessionLocal, engine
 from backend.models import Compte, Salon
 from backend.security import hash_password
+
+load_dotenv(override=True)
 
 HORAIRES_BELLE_ETOILE = {
     "lundi": None,
