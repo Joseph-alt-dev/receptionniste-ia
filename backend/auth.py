@@ -60,6 +60,11 @@ def revoke_refresh_token(raw_token: str, db: Session) -> None:
         db.commit()
 
 
+def revoke_all_refresh_tokens(compte_id: int, db: Session) -> None:
+    db.query(RefreshToken).filter_by(compte_id=compte_id, revoque=False).update({"revoque": True})
+    db.commit()
+
+
 def rotate_refresh_token(raw_token: str, db: Session) -> tuple[str, str] | None:
     """Vérifie un refresh token, le révoque, et en émet un nouveau couple (rotation).
     Retourne None si le token est invalide, révoqué ou expiré.
@@ -87,6 +92,16 @@ def get_current_compte(
     compte = db.get(Compte, int(payload["sub"]))
     if not compte:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Compte introuvable")
+    if not compte.actif:
+        # revérifié à chaque requête (pas seulement au login) : un compte suspendu
+        # perd l'accès immédiatement, même avec un access token encore valide
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Compte suspendu")
+    return compte
+
+
+def get_current_admin(compte: Compte = Depends(get_current_compte)) -> Compte:
+    if not compte.est_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé aux administrateurs")
     return compte
 
 

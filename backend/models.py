@@ -10,6 +10,8 @@ class Compte(Base):
     id = Column(Integer, primary_key=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     mot_de_passe_hash = Column(String(255), nullable=False)
+    est_admin = Column(Boolean, nullable=False, default=False)
+    actif = Column(Boolean, nullable=False, default=True)
     cree_le = Column(DateTime, server_default=func.now())
 
     salons = relationship("Salon", back_populates="compte")

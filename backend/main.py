@@ -1,22 +1,28 @@
 import json
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from backend.auth import (
     check_login_rate_limit,
     create_access_token,
     create_refresh_token,
+    get_current_admin,
     get_current_compte,
     get_db,
+    revoke_all_refresh_tokens,
     revoke_refresh_token,
     rotate_refresh_token,
 )
 from backend.config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE, CORS_ORIGINS, REFRESH_TOKEN_EXPIRE_DAYS
 from backend.models import Compte, Salon
-from backend.schemas import LoginRequest, SalonCreate, SalonOut, SalonUpdate, SignupRequest
+from backend.schemas import CompteAdminOut, LoginRequest, SalonCreate, SalonOut, SalonUpdate, SignupRequest
 from backend.security import hash_password, verifier_password
+
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 app = FastAPI(title="Réceptionniste IA — API salons")
 
@@ -158,3 +164,43 @@ def modifier_salon(
     salon.prestations = payload.prestations.model_dump_json()
     db.commit()
     return _salon_to_dict(salon)
+
+
+@app.get("/admin/comptes", response_model=list[CompteAdminOut])
+def admin_lister_comptes(admin: Compte = Depends(get_current_admin), db: Session = Depends(get_db)):
+    comptes = db.query(Compte).all()
+    return [
+        {
+            "id": c.id,
+            "email": c.email,
+            "actif": c.actif,
+            "est_admin": c.est_admin,
+            "salons": [{"id": s.id, "nom": s.nom, "est_demo": s.est_demo} for s in c.salons],
+        }
+        for c in comptes
+    ]
+
+
+@app.post("/admin/comptes/{compte_id}/suspendre")
+def admin_suspendre_compte(compte_id: int, admin: Compte = Depends(get_current_admin), db: Session = Depends(get_db)):
+    compte = db.get(Compte, compte_id)
+    if not compte:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Compte introuvable")
+    compte.actif = False
+    db.commit()
+    revoke_all_refresh_tokens(compte_id, db)
+    return {"ok": True}
+
+
+@app.post("/admin/comptes/{compte_id}/reactiver")
+def admin_reactiver_compte(compte_id: int, admin: Compte = Depends(get_current_admin), db: Session = Depends(get_db)):
+    compte = db.get(Compte, compte_id)
+    if not compte:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Compte introuvable")
+    compte.actif = True
+    db.commit()
+    return {"ok": True}
+
+
+# monté en dernier : les routes explicites ci-dessus restent prioritaires sur ce catch-all
+app.mount("/dashboard-admin", StaticFiles(directory=FRONTEND_DIR / "admin", html=True), name="dashboard_admin")

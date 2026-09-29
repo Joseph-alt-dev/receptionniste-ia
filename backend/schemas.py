@@ -76,3 +76,17 @@ class SalonOut(SalonBase):
     id: int
     numero_twilio: str | None = None
     est_demo: bool
+
+
+class SalonResume(BaseModel):
+    id: int
+    nom: str
+    est_demo: bool
+
+
+class CompteAdminOut(BaseModel):
+    id: int
+    email: EmailStr
+    actif: bool
+    est_admin: bool
+    salons: list[SalonResume]

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Administration — Réceptionniste IA</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; }
+  .badge { padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; }
+  .badge-actif { background: #e6f4ea; color: #1e7e34; }
+  .badge-suspendu { background: #fbe9e7; color: #c62828; }
+  .badge-admin { background: #e3f2fd; color: #1565c0; margin-left: 0.4rem; }
+  button { cursor: pointer; padding: 0.3rem 0.7rem; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+  button:hover { background: #f3f3f3; }
+  #login-form { max-width: 320px; margin-top: 2rem; }
+  #login-form input { display: block; width: 100%; margin-bottom: 0.6rem; padding: 0.4rem; }
+  #message { color: #c62828; }
+  .salons { color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>Administration — comptes de la plateforme</h1>
+  <p id="message"></p>
+
+  <form id="login-form" style="display:none">
+    <input type="email" id="login-email" placeholder="email admin" required>
+    <input type="password" id="login-mot-de-passe" placeholder="mot de passe" required>
+    <button type="submit">Se connecter</button>
+  </form>
+
+  <table id="table-comptes" style="display:none">
+    <thead>
+      <tr><th>Email</th><th>Statut</th><th>Salons</th><th>Action</th></tr>
+    </thead>
+    <tbody id="corps-tableau"></tbody>
+  </table>
+
+<script>
+async function chargerComptes() {
+  const res = await fetch('/admin/comptes', { credentials: 'include' });
+
+  if (res.status === 401) {
+    afficherLogin("Connectez-vous avec un compte administrateur.");
+    return;
+  }
+  if (res.status === 403) {
+    afficherMessage("Ce compte n'a pas les droits administrateur.");
+    return;
+  }
+  if (!res.ok) {
+    afficherMessage("Erreur inattendue lors du chargement des comptes.");
+    return;
+  }
+
+  const comptes = await res.json();
+  afficherTableau(comptes);
+}
+
+function afficherMessage(texte) {
+  document.getElementById('message').textContent = texte;
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('table-comptes').style.display = 'none';
+}
+
+function afficherLogin(texte) {
+  document.getElementById('message').textContent = texte;
+  document.getElementById('login-form').style.display = 'block';
+  document.getElementById('table-comptes').style.display = 'none';
+}
+
+function afficherTableau(comptes) {
+  document.getElementById('message').textContent = '';
+  document.getElementById('login-form').style.display = 'none';
+  const table = document.getElementById('table-comptes');
+  table.style.display = 'table';
+
+  const corps = document.getElementById('corps-tableau');
+  corps.innerHTML = '';
+
+  for (const compte of comptes) {
+    const tr = document.createElement('tr');
+
+    const statutBadge = compte.actif
+      ? '<span class="badge badge-actif">actif</span>'
+      : '<span class="badge badge-suspendu">suspendu</span>';
+    const adminBadge = compte.est_admin ? '<span class="badge badge-admin">admin</span>' : '';
+
+    const salonsTxt = compte.salons.length
+      ? compte.salons.map(s => s.nom + (s.est_demo ? ' (démo)' : '')).join(', ')
+      : '—';
+
+    const actionLabel = compte.actif ? 'Suspendre' : 'Réactiver';
+    const actionRoute = compte.actif ? 'suspendre' : 'reactiver';
+
+    tr.innerHTML = `
+      <td>${compte.email}</td>
+      <td>${statutBadge}${adminBadge}</td>
+      <td class="salons">${salonsTxt}</td>
+      <td><button data-id="${compte.id}" data-action="${actionRoute}">${actionLabel}</button></td>
+    `;
+    corps.appendChild(tr);
+  }
+
+  corps.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const res = await fetch(`/admin/comptes/${btn.dataset.id}/${btn.dataset.action}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (res.ok) {
+        chargerComptes();
+      } else {
+        afficherMessage("Action refusée.");
+      }
+    });
+  });
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value;
+  const mot_de_passe = document.getElementById('login-mot-de-passe').value;
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, mot_de_passe }),
+  });
+  if (res.ok) {
+    chargerComptes();
+  } else {
+    afficherLogin("Email ou mot de passe incorrect.");
+  }
+});
+
+chargerComptes();
+</script>
+</body>
+</html>
