@@ -76,6 +76,7 @@ class SalonOut(SalonBase):
     id: int
     numero_twilio: str | None = None
     est_demo: bool
+    calendrier_connecte: bool
 
 
 class SalonResume(BaseModel):

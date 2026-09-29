@@ -19,6 +19,7 @@ from backend.auth import (
 )
 from backend.config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE, CORS_ORIGINS, REFRESH_TOKEN_EXPIRE_DAYS
 from backend.models import Compte, Salon
+from backend.oauth import router as oauth_router
 from backend.schemas import CompteAdminOut, LoginRequest, SalonCreate, SalonOut, SalonUpdate, SignupRequest
 from backend.security import hash_password, verifier_password
 
@@ -33,6 +34,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(oauth_router)
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -108,6 +111,7 @@ def _salon_to_dict(salon: Salon) -> dict:
         "adresse": salon.adresse,
         "numero_twilio": salon.numero_twilio,
         "est_demo": salon.est_demo,
+        "calendrier_connecte": salon.calendrier_connecte,
         "horaires": json.loads(salon.horaires),
         "fermetures_exceptionnelles": json.loads(salon.fermetures_exceptionnelles),
         "prestations": json.loads(salon.prestations),
