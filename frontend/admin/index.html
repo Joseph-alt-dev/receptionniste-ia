@@ -98,13 +98,19 @@ function afficherTableau(comptes) {
       <td>${compte.email}</td>
       <td>${statutBadge}${adminBadge}</td>
       <td class="salons">${salonsTxt}</td>
-      <td><button data-id="${compte.id}" data-action="${actionRoute}">${actionLabel}</button></td>
+      <td>
+        <button data-id="${compte.id}" data-action="${actionRoute}">${actionLabel}</button>
+        <button data-id="${compte.id}" data-action="supprimer" data-confirm="true">Supprimer</button>
+      </td>
     `;
     corps.appendChild(tr);
   }
 
   corps.querySelectorAll('button').forEach(btn => {
     btn.addEventListener('click', async () => {
+      if (btn.dataset.confirm && !confirm("Supprimer définitivement ce compte et ses salons ? Cette action est irréversible.")) {
+        return;
+      }
       const res = await fetch(`/admin/comptes/${btn.dataset.id}/${btn.dataset.action}`, {
         method: 'POST',
         credentials: 'include',
@@ -112,7 +118,8 @@ function afficherTableau(comptes) {
       if (res.ok) {
         chargerComptes();
       } else {
-        afficherMessage("Action refusée.");
+        const detail = (await res.json().catch(() => null))?.detail;
+        afficherMessage(detail || "Action refusée.");
       }
     });
   });

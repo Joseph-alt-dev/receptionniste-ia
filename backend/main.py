@@ -18,7 +18,7 @@ from backend.auth import (
     rotate_refresh_token,
 )
 from backend.config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE, CORS_ORIGINS, REFRESH_TOKEN_EXPIRE_DAYS
-from backend.models import Compte, Salon
+from backend.models import Compte, RefreshToken, Salon
 from backend.oauth import router as oauth_router
 from backend.schemas import CompteAdminOut, LoginRequest, SalonCreate, SalonOut, SalonUpdate, SignupRequest
 from backend.security import hash_password, verifier_password
@@ -202,6 +202,21 @@ def admin_reactiver_compte(compte_id: int, admin: Compte = Depends(get_current_a
     if not compte:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Compte introuvable")
     compte.actif = True
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/admin/comptes/{compte_id}/supprimer")
+def admin_supprimer_compte(compte_id: int, admin: Compte = Depends(get_current_admin), db: Session = Depends(get_db)):
+    if compte_id == admin.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Impossible de supprimer son propre compte")
+    compte = db.get(Compte, compte_id)
+    if not compte:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Compte introuvable")
+    # pas de cascade configurée sur les relations : on supprime d'abord les lignes dépendantes
+    db.query(RefreshToken).filter_by(compte_id=compte_id).delete()
+    db.query(Salon).filter_by(compte_id=compte_id).delete()
+    db.delete(compte)
     db.commit()
     return {"ok": True}
 
