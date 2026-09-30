@@ -8,40 +8,55 @@
 <body>
   <div class="top-bar">
     <h1 id="titre">Mon salon</h1>
-    <div>
-      <a href="salons.html">Mes salons</a> ·
+    <nav>
+      <a href="salons.html">Mes salons</a>
       <button id="logout">Se déconnecter</button>
-    </div>
+    </nav>
   </div>
-  <p id="message"></p>
+  <div class="page">
+    <p id="message"></p>
 
-  <div id="contenu" style="display:none">
-    <label>Nom du salon</label>
-    <input type="text" id="nom">
-    <label>Adresse</label>
-    <input type="text" id="adresse">
+    <div id="contenu" style="display:none">
+      <div class="section-card">
+        <h3 style="margin-top:0">Informations générales</h3>
+        <label>Nom du salon</label>
+        <input type="text" id="nom">
+        <label style="margin-top:0.6rem">Adresse</label>
+        <input type="text" id="adresse">
+      </div>
 
-    <h2>Numéro de téléphone</h2>
-    <p id="numero-twilio"></p>
+      <div class="section-card">
+        <h3 style="margin-top:0">Numéro de téléphone</h3>
+        <p id="numero-twilio" style="margin:0"></p>
+      </div>
 
-    <h2>Google Agenda</h2>
-    <p>Statut : <span id="statut-agenda" class="badge"></span></p>
-    <a id="lien-connexion-agenda" href="#"><button type="button">Connecter mon Google Agenda</button></a>
+      <div class="section-card">
+        <h3 style="margin-top:0">Google Agenda</h3>
+        <p style="margin: 0 0 0.75rem">Statut : <span id="statut-agenda" class="badge"></span></p>
+        <a id="lien-connexion-agenda" href="#"><button type="button">Connecter mon Google Agenda</button></a>
+      </div>
 
-    <h2>Horaires d'ouverture</h2>
-    <div id="horaires"></div>
+      <div class="section-card">
+        <h3 style="margin-top:0">Horaires d'ouverture</h3>
+        <div id="horaires"></div>
+      </div>
 
-    <h2>Jours de fermeture exceptionnelle</h2>
-    <ul id="fermetures"></ul>
-    <div class="ligne">
-      <input type="date" id="nouvelle-fermeture">
-      <button type="button" id="ajouter-fermeture">Ajouter</button>
+      <div class="section-card">
+        <h3 style="margin-top:0">Jours de fermeture exceptionnelle</h3>
+        <ul id="fermetures" style="list-style:none; padding:0; margin:0 0 0.75rem"></ul>
+        <div class="ligne">
+          <input type="date" id="nouvelle-fermeture">
+          <button type="button" id="ajouter-fermeture">Ajouter</button>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <h3 style="margin-top:0">Prestations</h3>
+        <div id="prestations"></div>
+      </div>
+
+      <p><button id="enregistrer" class="primary">Enregistrer</button></p>
     </div>
-
-    <h2>Prestations</h2>
-    <div id="prestations"></div>
-
-    <p><button id="enregistrer" class="primary">Enregistrer</button></p>
   </div>
 
 <script>

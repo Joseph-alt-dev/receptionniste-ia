@@ -8,16 +8,18 @@
 <body>
   <div class="top-bar">
     <h1>Mes salons</h1>
-    <button id="logout">Se déconnecter</button>
+    <nav><button id="logout">Se déconnecter</button></nav>
   </div>
-  <p id="message"></p>
-  <div id="liste" class="salon-list" style="display:none"></div>
+  <div class="page">
+    <p id="message"></p>
+    <div id="liste" class="salon-list" style="display:none"></div>
 
-  <form id="creation-form" style="display:none">
-    <h2>Créer un salon</h2>
-    <input type="text" id="nom-salon" placeholder="nom du salon" required>
-    <button type="submit" class="primary">Créer</button>
-  </form>
+    <form id="creation-form" class="section-card" style="display:none">
+      <h2 style="margin-top:0">Créer un salon</h2>
+      <input type="text" id="nom-salon" placeholder="nom du salon" required>
+      <button type="submit" class="primary">Créer</button>
+    </form>
+  </div>
 
 <script>
 async function charger() {

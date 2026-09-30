@@ -3,39 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <title>Administration — Réceptionniste IA</title>
+<link rel="stylesheet" href="/site/style.css">
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-  h1 { font-size: 1.4rem; }
-  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; }
-  .badge { padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; }
-  .badge-actif { background: #e6f4ea; color: #1e7e34; }
-  .badge-suspendu { background: #fbe9e7; color: #c62828; }
-  .badge-admin { background: #e3f2fd; color: #1565c0; margin-left: 0.4rem; }
-  button { cursor: pointer; padding: 0.3rem 0.7rem; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
-  button:hover { background: #f3f3f3; }
-  #login-form { max-width: 320px; margin-top: 2rem; }
-  #login-form input { display: block; width: 100%; margin-bottom: 0.6rem; padding: 0.4rem; }
-  #message { color: #c62828; }
-  .salons { color: #555; font-size: 0.9rem; }
+  .salons { color: var(--muted); font-size: 0.88rem; }
 </style>
 </head>
 <body>
-  <h1>Administration — comptes de la plateforme</h1>
-  <p id="message"></p>
+  <div class="top-bar">
+    <h1>Administration</h1>
+    <p class="subtitle" style="margin:0">comptes de la plateforme</p>
+  </div>
 
-  <form id="login-form" style="display:none">
-    <input type="email" id="login-email" placeholder="email admin" required>
-    <input type="password" id="login-mot-de-passe" placeholder="mot de passe" required>
-    <button type="submit">Se connecter</button>
-  </form>
+  <div class="page">
+    <p id="message" style="text-align:center"></p>
 
-  <table id="table-comptes" style="display:none">
-    <thead>
-      <tr><th>Email</th><th>Statut</th><th>Salons</th><th>Action</th></tr>
-    </thead>
-    <tbody id="corps-tableau"></tbody>
-  </table>
+    <div id="wrap-login" style="display:none">
+      <div class="auth-wrap" style="min-height: 30vh">
+        <div class="page-narrow">
+          <div class="card">
+            <h1>Connexion admin</h1>
+            <form id="login-form">
+              <input type="email" id="login-email" placeholder="email admin" required>
+              <input type="password" id="login-mot-de-passe" placeholder="mot de passe" required>
+              <button type="submit" class="primary">Se connecter</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card" id="table-comptes" style="display:none">
+      <table>
+        <thead>
+          <tr><th>Email</th><th>Statut</th><th>Salons</th><th>Action</th></tr>
+        </thead>
+        <tbody id="corps-tableau"></tbody>
+      </table>
+    </div>
+  </div>
 
 <script>
 async function chargerComptes() {
@@ -60,21 +65,21 @@ async function chargerComptes() {
 
 function afficherMessage(texte) {
   document.getElementById('message').textContent = texte;
-  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('wrap-login').style.display = 'none';
   document.getElementById('table-comptes').style.display = 'none';
 }
 
 function afficherLogin(texte) {
   document.getElementById('message').textContent = texte;
-  document.getElementById('login-form').style.display = 'block';
+  document.getElementById('wrap-login').style.display = 'block';
   document.getElementById('table-comptes').style.display = 'none';
 }
 
 function afficherTableau(comptes) {
   document.getElementById('message').textContent = '';
-  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('wrap-login').style.display = 'none';
   const table = document.getElementById('table-comptes');
-  table.style.display = 'table';
+  table.style.display = 'block';
 
   const corps = document.getElementById('corps-tableau');
   corps.innerHTML = '';
@@ -100,7 +105,7 @@ function afficherTableau(comptes) {
       <td class="salons">${salonsTxt}</td>
       <td>
         <button data-id="${compte.id}" data-action="${actionRoute}">${actionLabel}</button>
-        <button data-id="${compte.id}" data-action="supprimer" data-confirm="true">Supprimer</button>
+        <button class="danger" data-id="${compte.id}" data-action="supprimer" data-confirm="true">Supprimer</button>
       </td>
     `;
     corps.appendChild(tr);

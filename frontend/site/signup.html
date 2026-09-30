@@ -6,17 +6,27 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Créer un compte</h1>
-  <p id="message"></p>
+  <div class="auth-wrap">
+    <div class="page-narrow">
+      <div class="brand"><span class="dot"></span> Réceptionniste IA</div>
+      <div class="card">
+        <h1>Créer un compte</h1>
+        <p class="subtitle">Configurez votre salon en quelques secondes.</p>
+        <p id="message"></p>
 
-  <form id="signup-form">
-    <input type="email" id="email" placeholder="email" required>
-    <input type="password" id="mot-de-passe" placeholder="mot de passe (8 caractères minimum)" minlength="8" required>
-    <input type="text" id="nom-salon" placeholder="nom du salon" required>
-    <button type="submit" class="primary">Créer mon compte</button>
-  </form>
+        <form id="signup-form">
+          <input type="email" id="email" placeholder="email" required>
+          <input type="password" id="mot-de-passe" placeholder="mot de passe (8 caractères minimum)" minlength="8" required>
+          <input type="text" id="nom-salon" placeholder="nom du salon" required>
+          <button type="submit" class="primary">Créer mon compte</button>
+        </form>
 
-  <p>Déjà un compte ? <a href="index.html">Se connecter</a></p>
+        <p style="margin-top: 1.25rem; font-size: 0.88rem; color: var(--muted)">
+          Déjà un compte ? <a href="index.html">Se connecter</a>
+        </p>
+      </div>
+    </div>
+  </div>
 
 <script>
 document.getElementById('signup-form').addEventListener('submit', async (e) => {
