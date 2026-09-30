@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Créer un compte — Réceptionniste IA</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Créer un compte</h1>
+  <p id="message"></p>
+
+  <form id="signup-form">
+    <input type="email" id="email" placeholder="email" required>
+    <input type="password" id="mot-de-passe" placeholder="mot de passe (8 caractères minimum)" minlength="8" required>
+    <input type="text" id="nom-salon" placeholder="nom du salon" required>
+    <button type="submit" class="primary">Créer mon compte</button>
+  </form>
+
+  <p>Déjà un compte ? <a href="index.html">Se connecter</a></p>
+
+<script>
+document.getElementById('signup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value;
+  const mot_de_passe = document.getElementById('mot-de-passe').value;
+  const nom = document.getElementById('nom-salon').value;
+
+  const resSignup = await fetch('/api/auth/signup', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, mot_de_passe }),
+  });
+
+  if (!resSignup.ok) {
+    const detail = (await resSignup.json().catch(() => null))?.detail;
+    document.getElementById('message').textContent = detail || "Erreur lors de la création du compte.";
+    return;
+  }
+
+  const resSalon = await fetch('/api/salons', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nom, horaires: {}, fermetures_exceptionnelles: [], prestations: {} }),
+  });
+
+  if (!resSalon.ok) {
+    // le compte est créé mais le salon a échoué : on renvoie vers la sélection,
+    // qui propose de créer un salon si aucun n'existe encore
+    location.href = 'salons.html';
+    return;
+  }
+
+  const salon = await resSalon.json();
+  location.href = `salon.html?id=${salon.id}`;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Mes salons — Réceptionniste IA</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-bar">
+    <h1>Mes salons</h1>
+    <button id="logout">Se déconnecter</button>
+  </div>
+  <p id="message"></p>
+  <div id="liste" class="salon-list" style="display:none"></div>
+
+  <form id="creation-form" style="display:none">
+    <h2>Créer un salon</h2>
+    <input type="text" id="nom-salon" placeholder="nom du salon" required>
+    <button type="submit" class="primary">Créer</button>
+  </form>
+
+<script>
+async function charger() {
+  const res = await fetch('/api/salons', { credentials: 'include' });
+  if (res.status === 401) {
+    location.href = 'index.html';
+    return;
+  }
+  const salons = await res.json();
+
+  if (salons.length === 1) {
+    location.href = `salon.html?id=${salons[0].id}`;
+    return;
+  }
+
+  if (salons.length === 0) {
+    document.getElementById('message').textContent = "Vous n'avez pas encore de salon.";
+    document.getElementById('creation-form').style.display = 'block';
+    return;
+  }
+
+  const liste = document.getElementById('liste');
+  liste.style.display = 'block';
+  liste.innerHTML = salons.map(s => `<a href="salon.html?id=${s.id}">${s.nom}</a>`).join('');
+}
+
+document.getElementById('creation-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nom = document.getElementById('nom-salon').value;
+  const res = await fetch('/api/salons', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nom, horaires: {}, fermetures_exceptionnelles: [], prestations: {} }),
+  });
+  if (res.ok) {
+    const salon = await res.json();
+    location.href = `salon.html?id=${salon.id}`;
+  } else {
+    document.getElementById('message').textContent = "Erreur lors de la création du salon.";
+  }
+});
+
+document.getElementById('logout').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  location.href = 'index.html';
+});
+
+charger();
+</script>
+</body>
+</html>

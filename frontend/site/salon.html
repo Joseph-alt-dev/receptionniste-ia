@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Mon salon — Réceptionniste IA</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-bar">
+    <h1 id="titre">Mon salon</h1>
+    <div>
+      <a href="salons.html">Mes salons</a> ·
+      <button id="logout">Se déconnecter</button>
+    </div>
+  </div>
+  <p id="message"></p>
+
+  <div id="contenu" style="display:none">
+    <label>Nom du salon</label>
+    <input type="text" id="nom">
+    <label>Adresse</label>
+    <input type="text" id="adresse">
+
+    <h2>Numéro de téléphone</h2>
+    <p id="numero-twilio"></p>
+
+    <h2>Google Agenda</h2>
+    <p>Statut : <span id="statut-agenda" class="badge"></span></p>
+    <a id="lien-connexion-agenda" href="#"><button type="button">Connecter mon Google Agenda</button></a>
+
+    <h2>Horaires d'ouverture</h2>
+    <div id="horaires"></div>
+
+    <h2>Jours de fermeture exceptionnelle</h2>
+    <ul id="fermetures"></ul>
+    <div class="ligne">
+      <input type="date" id="nouvelle-fermeture">
+      <button type="button" id="ajouter-fermeture">Ajouter</button>
+    </div>
+
+    <h2>Prestations</h2>
+    <div id="prestations"></div>
+
+    <p><button id="enregistrer" class="primary">Enregistrer</button></p>
+  </div>
+
+<script>
+const JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+const CATEGORIES = ['femme', 'homme', 'enfant'];
+const salonId = new URLSearchParams(location.search).get('id');
+
+let fermetures = [];
+let prestations = { femme: {}, homme: {}, enfant: {} };
+
+function afficherMessage(texte) {
+  document.getElementById('message').textContent = texte;
+  document.getElementById('contenu').style.display = 'none';
+}
+
+function rendreHoraires(horaires) {
+  const conteneur = document.getElementById('horaires');
+  conteneur.innerHTML = JOURS.map(jour => {
+    const plage = horaires[jour];
+    return `
+      <div class="jour-row" data-jour="${jour}">
+        <label class="jour"><input type="checkbox" class="ouvert" ${plage ? 'checked' : ''}> ${jour}</label>
+        <input type="time" class="ouverture" value="${plage ? plage.ouverture : '09:00'}" ${plage ? '' : 'disabled'}>
+        <input type="time" class="fermeture" value="${plage ? plage.fermeture : '19:00'}" ${plage ? '' : 'disabled'}>
+      </div>`;
+  }).join('');
+
+  conteneur.querySelectorAll('.ouvert').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const row = cb.closest('.jour-row');
+      row.querySelector('.ouverture').disabled = !cb.checked;
+      row.querySelector('.fermeture').disabled = !cb.checked;
+    });
+  });
+}
+
+function lireHoraires() {
+  const horaires = {};
+  document.querySelectorAll('#horaires .jour-row').forEach(row => {
+    const jour = row.dataset.jour;
+    const ouvert = row.querySelector('.ouvert').checked;
+    horaires[jour] = ouvert
+      ? { ouverture: row.querySelector('.ouverture').value, fermeture: row.querySelector('.fermeture').value }
+      : null;
+  });
+  return horaires;
+}
+
+function rendreFermetures() {
+  const liste = document.getElementById('fermetures');
+  liste.innerHTML = fermetures.map(d => `<li>${d} <button type="button" data-date="${d}" class="retirer-fermeture">retirer</button></li>`).join('');
+  liste.querySelectorAll('.retirer-fermeture').forEach(btn => {
+    btn.addEventListener('click', () => {
+      fermetures = fermetures.filter(d => d !== btn.dataset.date);
+      rendreFermetures();
+    });
+  });
+}
+
+function rendrePrestations() {
+  const conteneur = document.getElementById('prestations');
+  conteneur.innerHTML = CATEGORIES.map(cat => `
+    <h3 style="font-size:1rem">${cat}</h3>
+    <div class="lignes-prestations" data-categorie="${cat}">
+      ${Object.entries(prestations[cat] || {}).map(([nom, prix]) => `
+        <div class="ligne" data-nom="${nom}">
+          <input type="text" class="prestation-nom" value="${nom}" placeholder="nom">
+          <input type="number" class="prestation-prix" value="${prix}" min="0.01" step="0.01" placeholder="prix">
+          <button type="button" class="retirer-prestation">retirer</button>
+        </div>`).join('')}
+    </div>
+    <button type="button" class="ajouter-prestation" data-categorie="${cat}">+ ajouter une prestation</button>
+  `).join('');
+
+  conteneur.querySelectorAll('.retirer-prestation').forEach(btn => {
+    btn.addEventListener('click', () => btn.closest('.ligne').remove());
+  });
+
+  conteneur.querySelectorAll('.ajouter-prestation').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const bloc = conteneur.querySelector(`.lignes-prestations[data-categorie="${btn.dataset.categorie}"]`);
+      const ligne = document.createElement('div');
+      ligne.className = 'ligne';
+      ligne.innerHTML = `
+        <input type="text" class="prestation-nom" placeholder="nom">
+        <input type="number" class="prestation-prix" min="0.01" step="0.01" placeholder="prix">
+        <button type="button" class="retirer-prestation">retirer</button>`;
+      ligne.querySelector('.retirer-prestation').addEventListener('click', () => ligne.remove());
+      bloc.appendChild(ligne);
+    });
+  });
+}
+
+function lirePrestations() {
+  const resultat = {};
+  CATEGORIES.forEach(cat => {
+    resultat[cat] = {};
+    document.querySelectorAll(`.lignes-prestations[data-categorie="${cat}"] .ligne`).forEach(ligne => {
+      const nom = ligne.querySelector('.prestation-nom').value.trim();
+      const prix = parseFloat(ligne.querySelector('.prestation-prix').value);
+      if (nom && prix > 0) resultat[cat][nom] = prix;
+    });
+  });
+  return resultat;
+}
+
+async function charger() {
+  if (!salonId) {
+    afficherMessage("Aucun salon sélectionné.");
+    return;
+  }
+
+  const res = await fetch(`/api/salons/${salonId}`, { credentials: 'include' });
+  if (res.status === 401) {
+    location.href = 'index.html';
+    return;
+  }
+  if (res.status === 404) {
+    afficherMessage("Ce salon n'existe pas ou ne vous appartient pas.");
+    return;
+  }
+  if (!res.ok) {
+    afficherMessage("Erreur lors du chargement du salon.");
+    return;
+  }
+
+  const salon = await res.json();
+  document.getElementById('contenu').style.display = 'block';
+  document.getElementById('titre').textContent = salon.nom;
+  document.getElementById('nom').value = salon.nom;
+  document.getElementById('adresse').value = salon.adresse || '';
+  document.getElementById('numero-twilio').textContent = salon.numero_twilio || 'Non attribué pour le moment';
+
+  const statut = document.getElementById('statut-agenda');
+  const lien = document.getElementById('lien-connexion-agenda');
+  if (salon.calendrier_connecte) {
+    statut.textContent = 'Connecté ✓';
+    statut.className = 'badge badge-ok';
+    lien.style.display = 'none';
+  } else {
+    statut.textContent = 'Non connecté';
+    statut.className = 'badge badge-off';
+    lien.href = `/api/oauth/google/authorize?salon_id=${salon.id}`;
+  }
+
+  rendreHoraires(salon.horaires);
+  fermetures = salon.fermetures_exceptionnelles || [];
+  rendreFermetures();
+  prestations = salon.prestations;
+  rendrePrestations();
+}
+
+document.getElementById('ajouter-fermeture').addEventListener('click', () => {
+  const input = document.getElementById('nouvelle-fermeture');
+  if (input.value && !fermetures.includes(input.value)) {
+    fermetures.push(input.value);
+    fermetures.sort();
+    rendreFermetures();
+    input.value = '';
+  }
+});
+
+document.getElementById('enregistrer').addEventListener('click', async () => {
+  const payload = {
+    nom: document.getElementById('nom').value,
+    adresse: document.getElementById('adresse').value || null,
+    horaires: lireHoraires(),
+    fermetures_exceptionnelles: fermetures,
+    prestations: lirePrestations(),
+  };
+
+  const res = await fetch(`/api/salons/${salonId}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (res.ok) {
+    document.getElementById('message').textContent = 'Enregistré.';
+    document.getElementById('message').style.color = '#1e7e34';
+    charger();
+  } else {
+    const detail = (await res.json().catch(() => null))?.detail;
+    document.getElementById('message').textContent = detail ? JSON.stringify(detail) : "Erreur lors de l'enregistrement.";
+    document.getElementById('message').style.color = '#c62828';
+  }
+});
+
+document.getElementById('logout').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  location.href = 'index.html';
+});
+
+charger();
+</script>
+</body>
+</html>

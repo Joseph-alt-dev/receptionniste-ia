@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Connexion — Réceptionniste IA</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Connexion</h1>
+  <p id="message"></p>
+
+  <form id="login-form">
+    <input type="email" id="email" placeholder="email" required>
+    <input type="password" id="mot-de-passe" placeholder="mot de passe" required>
+    <button type="submit" class="primary">Se connecter</button>
+  </form>
+
+  <p>Pas encore de compte ? <a href="signup.html">Créer un compte</a></p>
+
+<script>
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value;
+  const mot_de_passe = document.getElementById('mot-de-passe').value;
+
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, mot_de_passe }),
+  });
+
+  if (!res.ok) {
+    document.getElementById('message').textContent =
+      res.status === 429 ? "Trop de tentatives, réessayez plus tard." : "Email ou mot de passe incorrect.";
+    return;
+  }
+
+  const salons = await (await fetch('/api/salons', { credentials: 'include' })).json();
+  if (salons.length === 1) {
+    location.href = `salon.html?id=${salons[0].id}`;
+  } else {
+    location.href = 'salons.html';
+  }
+});
+</script>
+</body>
+</html>

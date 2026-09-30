@@ -4,11 +4,13 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class SignupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     email: EmailStr
     mot_de_passe: str = Field(min_length=8, max_length=128)
 
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     email: EmailStr
     mot_de_passe: str
 

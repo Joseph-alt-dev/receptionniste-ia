@@ -206,5 +206,6 @@ def admin_reactiver_compte(compte_id: int, admin: Compte = Depends(get_current_a
     return {"ok": True}
 
 
-# monté en dernier : les routes explicites ci-dessus restent prioritaires sur ce catch-all
+# montés en dernier : les routes explicites ci-dessus restent prioritaires sur ces catch-all
 app.mount("/dashboard-admin", StaticFiles(directory=FRONTEND_DIR / "admin", html=True), name="dashboard_admin")
+app.mount("/site", StaticFiles(directory=FRONTEND_DIR / "site", html=True), name="site")

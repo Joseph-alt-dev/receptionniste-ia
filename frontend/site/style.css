@@ -1,0 +1,26 @@
+body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.1rem; margin-top: 2rem; }
+a { color: #1565c0; }
+form { max-width: 360px; }
+input { display: block; width: 100%; margin-bottom: 0.6rem; padding: 0.4rem; box-sizing: border-box; }
+label { font-size: 0.85rem; color: #555; }
+button { cursor: pointer; padding: 0.35rem 0.8rem; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+button:hover { background: #f3f3f3; }
+button.primary { background: #1565c0; color: #fff; border-color: #1565c0; }
+button.primary:hover { background: #0d47a1; }
+button.danger { border-color: #c62828; color: #c62828; }
+table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #ddd; }
+.badge { padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; }
+.badge-ok { background: #e6f4ea; color: #1e7e34; }
+.badge-off { background: #fbe9e7; color: #c62828; }
+.jour-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
+.jour-row label.jour { width: 90px; font-size: 0.9rem; color: #222; }
+.jour-row input[type="time"] { width: 110px; margin: 0; }
+.ligne { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+.ligne input { margin: 0; }
+#message { color: #c62828; }
+.salon-list a { display: block; padding: 0.6rem; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 0.5rem; text-decoration: none; }
+.salon-list a:hover { background: #f7f7f7; }
+.top-bar { display: flex; justify-content: space-between; align-items: center; }
