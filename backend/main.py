@@ -2,7 +2,7 @@ import json
 import mimetypes
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -23,6 +23,7 @@ from backend.models import Compte, RefreshToken, Salon
 from backend.oauth import router as oauth_router
 from backend.schemas import CompteAdminOut, LoginRequest, SalonCreate, SalonOut, SalonUpdate, SignupRequest
 from backend.security import hash_password, verifier_password
+from salon_bot import ConversationTexte
 
 # le mime.types du système peut ne pas déclarer .css/.js (varie selon l'OS/le
 # déploiement) ; Safari refuse d'appliquer un CSS sans Content-Type text/css
@@ -226,6 +227,33 @@ def admin_supprimer_compte(compte_id: int, admin: Compte = Depends(get_current_a
     db.delete(compte)
     db.commit()
     return {"ok": True}
+
+
+@app.websocket("/chat/ws")
+async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get_db)):
+    salon = db.get(Salon, salon_id)
+    await websocket.accept()
+    if not salon:
+        await websocket.send_json({"role": "error", "content": "Salon introuvable."})
+        await websocket.close()
+        return
+    db.expunge(salon)
+
+    # une conversation par connexion : aucune mémoire partagée entre deux clients
+    conversation = ConversationTexte(salon)
+    try:
+        await websocket.send_json({"role": "info", "nom_salon": salon.nom})
+        reponse = await conversation.tour("[Le client vient d'ouvrir le chat. Présente-toi brièvement.]")
+        await websocket.send_json({"role": "assistant", "content": reponse})
+        while True:
+            data = await websocket.receive_json()
+            texte = (data.get("message") or "").strip()
+            if not texte:
+                continue
+            reponse = await conversation.tour(texte)
+            await websocket.send_json({"role": "assistant", "content": reponse})
+    except WebSocketDisconnect:
+        pass
 
 
 # montés en dernier : les routes explicites ci-dessus restent prioritaires sur ces catch-all

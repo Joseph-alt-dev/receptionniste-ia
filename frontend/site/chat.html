@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chat — Prise de rendez-vous</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  html, body { height: 100%; }
+  body { display: flex; justify-content: center; }
+  .chat-page {
+    width: 100%;
+    max-width: 640px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+  }
+  .chat-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+  .chat-header h1 { font-size: 1.05rem; margin: 0; }
+  .chat-header p { margin: 0.15rem 0 0; font-size: 0.82rem; color: var(--muted); }
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .bulle {
+    max-width: 75%;
+    padding: 0.6rem 0.9rem;
+    border-radius: var(--radius);
+    font-size: 0.92rem;
+    line-height: 1.4;
+    animation: rise 0.2s ease;
+    white-space: pre-wrap;
+  }
+  .bulle.client {
+    align-self: flex-end;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: #fff;
+  }
+  .bulle.bot {
+    align-self: flex-start;
+    background: var(--primary-light);
+    border: 1px solid var(--border);
+    color: #1f2330;
+  }
+  .typing {
+    align-self: flex-start;
+    font-size: 0.82rem;
+    color: var(--muted);
+    padding: 0 0.3rem;
+    display: none;
+  }
+  .typing.visible { display: block; }
+  .saisie {
+    display: flex;
+    gap: 0.6rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+  .saisie input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.8rem;
+    font-size: 0.92rem;
+  }
+  .saisie input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+</style>
+</head>
+<body>
+  <div class="chat-page">
+    <div class="chat-header">
+      <h1 id="nom-salon">Chargement…</h1>
+      <p>Discutez avec notre réceptionniste pour prendre rendez-vous</p>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="typing" id="typing">Claire est en train d'écrire…</div>
+    <div class="saisie">
+      <input type="text" id="champ-message" placeholder="Écrivez votre message…" autocomplete="off">
+      <button class="primary" id="bouton-envoyer">Envoyer</button>
+    </div>
+  </div>
+
+<script>
+const salonId = new URLSearchParams(location.search).get("salon_id");
+const messagesEl = document.getElementById("messages");
+const typingEl = document.getElementById("typing");
+const champEl = document.getElementById("champ-message");
+const nomSalonEl = document.getElementById("nom-salon");
+
+function ajouterBulle(texte, role) {
+  const bulle = document.createElement("div");
+  bulle.className = `bulle ${role === "client" ? "client" : "bot"}`;
+  bulle.textContent = texte;
+  messagesEl.appendChild(bulle);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+if (!salonId) {
+  nomSalonEl.textContent = "Salon introuvable";
+  ajouterBulle("Aucun salon_id fourni dans l'URL (ex : ?salon_id=1).", "bot");
+} else {
+  const protocole = location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${protocole}://${location.host}/chat/ws?salon_id=${salonId}`);
+
+  socket.addEventListener("open", () => { typingEl.classList.add("visible"); });
+
+  socket.addEventListener("message", (event) => {
+    const data = JSON.parse(event.data);
+    typingEl.classList.remove("visible");
+    if (data.nom_salon) nomSalonEl.textContent = data.nom_salon;
+    if (data.role === "assistant" || data.role === "error") ajouterBulle(data.content, "bot");
+  });
+
+  socket.addEventListener("close", () => { typingEl.classList.remove("visible"); });
+
+  function envoyer() {
+    const texte = champEl.value.trim();
+    if (!texte || socket.readyState !== WebSocket.OPEN) return;
+    ajouterBulle(texte, "client");
+    socket.send(JSON.stringify({ message: texte }));
+    champEl.value = "";
+    typingEl.classList.add("visible");
+  }
+
+  document.getElementById("bouton-envoyer").addEventListener("click", envoyer);
+  champEl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") envoyer();
+  });
+}
+</script>
+</body>
+</html>
