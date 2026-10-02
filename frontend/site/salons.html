@@ -30,20 +30,19 @@ async function charger() {
   }
   const salons = await res.json();
 
-  if (salons.length === 1) {
-    location.href = `salon.html?id=${salons[0].id}`;
-    return;
-  }
-
-  if (salons.length === 0) {
-    document.getElementById('message').textContent = "Vous n'avez pas encore de salon.";
-    document.getElementById('creation-form').style.display = 'block';
-    return;
-  }
+  document.getElementById('message').textContent = salons.length ? '' : "Vous n'avez pas encore de salon.";
 
   const liste = document.getElementById('liste');
-  liste.style.display = 'block';
-  liste.innerHTML = salons.map(s => `<a href="salon.html?id=${s.id}">${s.nom}</a>`).join('');
+  if (salons.length) {
+    liste.style.display = 'block';
+    liste.innerHTML = salons.map(s => `<a href="salon.html?id=${s.id}">${s.nom}</a>`).join('');
+  } else {
+    liste.style.display = 'none';
+  }
+
+  // toujours affiché : un compte peut posséder plusieurs salons et doit
+  // pouvoir en ajouter d'autres, pas seulement au tout premier
+  document.getElementById('creation-form').style.display = 'block';
 }
 
 document.getElementById('creation-form').addEventListener('submit', async (e) => {

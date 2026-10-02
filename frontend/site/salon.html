@@ -9,7 +9,7 @@
   <div class="top-bar">
     <h1 id="titre">Mon salon</h1>
     <nav>
-      <a href="salons.html">Mes salons</a>
+      <select id="selecteur-salon"></select>
       <button id="logout">Se déconnecter</button>
     </nav>
   </div>
@@ -209,6 +209,42 @@ async function charger() {
   rendrePrestations();
 }
 
+async function chargerSelecteurSalons() {
+  const res = await fetch('/api/salons', { credentials: 'include' });
+  if (!res.ok) return;
+  const salons = await res.json();
+  const select = document.getElementById('selecteur-salon');
+  select.innerHTML = salons.map(s =>
+    `<option value="${s.id}" ${String(s.id) === salonId ? 'selected' : ''}>${s.nom}</option>`
+  ).join('') + '<option value="__new__">+ Ajouter un salon</option>';
+}
+
+document.getElementById('selecteur-salon').addEventListener('change', async (e) => {
+  const valeur = e.target.value;
+  if (valeur !== '__new__') {
+    location.href = `salon.html?id=${valeur}`;
+    return;
+  }
+  const nom = prompt('Nom du nouveau salon :');
+  if (!nom) {
+    chargerSelecteurSalons();
+    return;
+  }
+  const res = await fetch('/api/salons', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nom, horaires: {}, fermetures_exceptionnelles: [], prestations: {} }),
+  });
+  if (res.ok) {
+    const salon = await res.json();
+    location.href = `salon.html?id=${salon.id}`;
+  } else {
+    alert("Erreur lors de la création du salon.");
+    chargerSelecteurSalons();
+  }
+});
+
 document.getElementById('ajouter-fermeture').addEventListener('click', () => {
   const input = document.getElementById('nouvelle-fermeture');
   if (input.value && !fermetures.includes(input.value)) {
@@ -252,6 +288,7 @@ document.getElementById('logout').addEventListener('click', async () => {
 });
 
 charger();
+chargerSelecteurSalons();
 </script>
 </body>
 </html>
