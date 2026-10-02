@@ -1,4 +1,5 @@
 import json
+import mimetypes
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -22,6 +23,12 @@ from backend.models import Compte, RefreshToken, Salon
 from backend.oauth import router as oauth_router
 from backend.schemas import CompteAdminOut, LoginRequest, SalonCreate, SalonOut, SalonUpdate, SignupRequest
 from backend.security import hash_password, verifier_password
+
+# le mime.types du système peut ne pas déclarer .css/.js (varie selon l'OS/le
+# déploiement) ; Safari refuse d'appliquer un CSS sans Content-Type text/css
+# correct, contrairement à Chrome qui est tolérant — on force le mapping.
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
