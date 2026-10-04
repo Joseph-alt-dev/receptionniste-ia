@@ -73,7 +73,7 @@ form { display: flex; flex-direction: column; gap: 0.9rem; }
 
 label { font-size: 0.82rem; font-weight: 500; color: var(--muted); margin-bottom: -0.45rem; }
 
-input, select {
+input, select, textarea {
   width: 100%;
   padding: 0.6rem 0.75rem;
   border: 1px solid var(--border);
@@ -81,9 +81,11 @@ input, select {
   background: #fff;
   font-size: 0.92rem;
   color: var(--ink);
+  font-family: inherit;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-input:focus, select:focus {
+textarea { resize: vertical; }
+input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-light);
@@ -174,6 +176,73 @@ tbody tr:last-child { border-bottom: none; }
 @keyframes rise {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- Composants partagés : accueil + page publique salon ---------- */
+
+.etoiles {
+  position: relative;
+  display: inline-block;
+  font-size: 1rem;
+  letter-spacing: 1px;
+  color: var(--border);
+  line-height: 1;
+  white-space: nowrap;
+}
+.etoiles span {
+  position: absolute;
+  top: 0; left: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #f5b50a;
+}
+.note-inline { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.88rem; }
+.note-inline .valeur { font-weight: 700; color: var(--ink); }
+.note-inline .nb-avis { color: var(--muted); }
+.note-vide { font-size: 0.85rem; color: var(--muted); }
+
+.badge-statut { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.65rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
+.badge-statut::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge-statut.ouvert { background: var(--success-light); color: var(--success); }
+.badge-statut.ferme { background: var(--danger-light); color: var(--danger); }
+
+.cartes-salons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1.1rem;
+}
+.carte-salon {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  text-decoration: none;
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  animation: rise 0.35s ease both;
+  display: flex;
+  flex-direction: column;
+}
+.carte-salon:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); border-color: var(--primary); }
+.carte-salon .vignette {
+  width: 100%; height: 150px; object-fit: cover; background: var(--primary-light);
+  display: flex; align-items: center; justify-content: center; color: var(--primary); font-size: 2rem; font-weight: 700;
+}
+.carte-salon .corps { padding: 1rem 1.1rem 1.15rem; display: flex; flex-direction: column; gap: 0.3rem; flex: 1; }
+.carte-salon h4 { margin: 0; font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; }
+.carte-salon .ville { margin: 0; font-size: 0.85rem; color: var(--muted); }
+.carte-salon .distance { font-size: 0.78rem; color: var(--primary); font-weight: 600; }
+
+.bouton-flottant {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 60;
+  padding: 0.85rem 1.4rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.4);
 }
 
 @media (max-width: 520px) {

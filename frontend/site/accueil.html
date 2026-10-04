@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claire — Trouvez votre salon de coiffure</title>
+<link rel="stylesheet" href="/site/style.css?v=2">
+<style>
+  body { padding: 0 0 4rem; }
+
+  .nav-accueil {
+    display: flex; align-items: center; justify-content: space-between;
+    max-width: 1080px; margin: 0 auto; padding: 1.5rem 1.25rem 0;
+  }
+  .nav-accueil a.connexion {
+    font-size: 0.88rem; font-weight: 600; color: var(--ink);
+    border: 1px solid var(--border); border-radius: 999px; padding: 0.5rem 1.1rem;
+    text-decoration: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .nav-accueil a.connexion:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); text-decoration: none; }
+
+  .hero { max-width: 760px; margin: 0 auto; padding: 3.5rem 1.25rem 2.5rem; text-align: center; }
+  .hero h1 { font-size: 2.1rem; line-height: 1.25; margin: 0 0 0.75rem; }
+  .hero p { color: var(--muted); font-size: 1.05rem; margin: 0 0 2rem; }
+
+  .barre-recherche {
+    display: flex; gap: 0.6rem; max-width: 560px; margin: 0 auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+    padding: 0.4rem 0.4rem 0.4rem 1.25rem; box-shadow: var(--shadow);
+  }
+  .barre-recherche input {
+    border: none; flex: 1; font-size: 0.98rem; padding: 0.55rem 0;
+  }
+  .barre-recherche input:focus { outline: none; box-shadow: none; }
+  .barre-recherche button { border-radius: 999px; padding: 0.65rem 1.5rem; }
+
+  main { max-width: 1080px; margin: 0 auto; padding: 0 1.25rem; }
+  .section-accueil { margin-top: 3rem; }
+  .section-accueil .en-tete-section { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1.1rem; }
+  .section-accueil h2 { margin: 0; font-size: 1.3rem; }
+  .section-accueil .info-section { font-size: 0.85rem; color: var(--muted); }
+
+  .etat-section { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
+</style>
+</head>
+<body>
+
+<div class="nav-accueil">
+  <div class="brand"><span class="dot"></span>Claire</div>
+  <a class="connexion" href="/site/">Espace propriétaire</a>
+</div>
+
+<div class="hero">
+  <h1>Prenez rendez-vous chez le coiffeur, sans attendre au téléphone</h1>
+  <p>Trouvez un salon près de chez vous et réservez en ligne en quelques secondes.</p>
+  <form class="barre-recherche" id="form-recherche">
+    <input type="text" id="champ-recherche" placeholder="Nom du salon ou ville…" autocomplete="off">
+    <button class="primary" type="submit">Rechercher</button>
+  </form>
+</div>
+
+<main>
+  <section class="section-accueil" id="section-resultats-recherche" style="display:none">
+    <div class="en-tete-section">
+      <h2>Résultats de recherche</h2>
+      <span class="info-section" id="info-resultats-recherche"></span>
+    </div>
+    <div class="cartes-salons" id="cartes-recherche"></div>
+  </section>
+
+  <section class="section-accueil" id="section-pres-de-vous">
+    <div class="en-tete-section">
+      <h2>Près de chez vous</h2>
+      <span class="info-section" id="info-pres-de-vous"></span>
+    </div>
+    <div class="cartes-salons" id="cartes-pres-de-vous"><p class="etat-section">Chargement…</p></div>
+  </section>
+
+  <section class="section-accueil" id="section-mieux-notes">
+    <div class="en-tete-section">
+      <h2>Les mieux notés</h2>
+    </div>
+    <div class="cartes-salons" id="cartes-mieux-notes"><p class="etat-section">Chargement…</p></div>
+  </section>
+</main>
+
+<script>
+function etoilesHtml(note) {
+  if (note === null || note === undefined) return '<span class="note-vide">Pas encore noté</span>';
+  const pct = Math.max(0, Math.min(100, (note / 5) * 100));
+  return `<div class="note-inline"><div class="etoiles">★★★★★<span style="width:${pct}%">★★★★★</span></div><span class="valeur">${note.toFixed(1)}</span></div>`;
+}
+
+function carteSalonHtml(salon) {
+  const initiale = (salon.nom || '?').trim().charAt(0).toUpperCase();
+  const vignette = salon.photo_principale
+    ? `<img class="vignette" src="${salon.photo_principale}" alt="${salon.nom}">`
+    : `<div class="vignette">${initiale}</div>`;
+  const distance = (salon.distance_km !== null && salon.distance_km !== undefined)
+    ? `<p class="distance">${salon.distance_km} km</p>` : '';
+  return `
+    <a class="carte-salon" href="/salon/${salon.slug}">
+      ${vignette}
+      <div class="corps">
+        <h4>${salon.nom}</h4>
+        <p class="ville">${salon.ville || ''}</p>
+        ${etoilesHtml(salon.note_moyenne)}
+        ${distance}
+      </div>
+    </a>`;
+}
+
+async function rechercher(params) {
+  const res = await fetch(`/api/salons/recherche?${new URLSearchParams(params)}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+function rendreCartes(conteneurId, salons, messageVide) {
+  const conteneur = document.getElementById(conteneurId);
+  if (!salons.length) {
+    conteneur.innerHTML = `<p class="etat-section">${messageVide}</p>`;
+    return;
+  }
+  conteneur.innerHTML = salons.map(carteSalonHtml).join('');
+}
+
+async function chargerPresDeVous() {
+  const info = document.getElementById('info-pres-de-vous');
+  if (!navigator.geolocation) {
+    info.textContent = '';
+    rendreCartes('cartes-pres-de-vous', await rechercher({ tri: 'recent' }), 'Aucun salon pour le moment.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      info.textContent = 'Trié par distance';
+      const salons = await rechercher({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        tri: 'distance',
+      });
+      rendreCartes('cartes-pres-de-vous', salons.slice(0, 6), 'Aucun salon trouvé près de chez vous.');
+    },
+    async () => {
+      info.textContent = 'Salons les plus récents';
+      rendreCartes('cartes-pres-de-vous', (await rechercher({ tri: 'recent' })).slice(0, 6), 'Aucun salon pour le moment.');
+    },
+    { timeout: 6000 },
+  );
+}
+
+async function chargerMieuxNotes() {
+  const salons = (await rechercher({ tri: 'note' })).filter(s => s.note_moyenne !== null);
+  rendreCartes('cartes-mieux-notes', salons.slice(0, 6), 'Aucun salon noté pour le moment.');
+}
+
+async function lancerRecherche(texte) {
+  const section = document.getElementById('section-resultats-recherche');
+  if (!texte) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  const salons = await rechercher({ texte });
+  document.getElementById('info-resultats-recherche').textContent = `${salons.length} salon${salons.length === 1 ? '' : 's'}`;
+  rendreCartes('cartes-recherche', salons, 'Aucun salon ne correspond à votre recherche.');
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+document.getElementById('form-recherche').addEventListener('submit', (event) => {
+  event.preventDefault();
+  lancerRecherche(document.getElementById('champ-recherche').value.trim());
+});
+
+chargerPresDeVous();
+chargerMieuxNotes();
+</script>
+</body>
+</html>

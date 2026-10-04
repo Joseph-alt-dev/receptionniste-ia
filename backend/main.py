@@ -73,6 +73,14 @@ app.add_middleware(
 app.include_router(oauth_router)
 
 
+@app.middleware("http")
+async def desactiver_cache_en_dev(request: Request, call_next):
+    response = await call_next(request)
+    if not COOKIE_SECURE:  # dev (http local) : jamais de cache navigateur, pour éviter qu'un vieux style.css/JS reste coincé dans le cache de Safari
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     response.set_cookie(
         "access_token",
@@ -232,6 +240,8 @@ def rechercher_salons(
     if texte:
         motif = f"%{texte.strip()}%"
         requete = requete.filter((Salon.nom.ilike(motif)) | (Salon.ville.ilike(motif)))
+    if tri == "recent":
+        requete = requete.order_by(Salon.id.desc())  # ponytail: pas de colonne cree_le sur Salon, id décroissant comme proxy de récence
 
     resultats = []
     for salon in requete.all():
@@ -253,8 +263,9 @@ def rechercher_salons(
     tri_effectif = tri or ("distance" if latitude is not None and longitude is not None else "note")
     if tri_effectif == "note":
         resultats.sort(key=lambda r: (r["note_moyenne"] is None, -(r["note_moyenne"] or 0)))
-    else:
+    elif tri_effectif == "distance":
         resultats.sort(key=lambda r: (r["distance_km"] is None, r["distance_km"] or 0))
+    # tri == "recent" : déjà dans le bon ordre (order_by appliqué à la requête ci-dessus)
 
     return resultats
 
@@ -474,6 +485,11 @@ async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get
             await websocket.send_json({"role": "assistant", "content": reponse})
     except WebSocketDisconnect:
         pass
+
+
+@app.get("/")
+def page_accueil():
+    return FileResponse(FRONTEND_DIR / "site" / "accueil.html")
 
 
 @app.get("/salon/{slug}")

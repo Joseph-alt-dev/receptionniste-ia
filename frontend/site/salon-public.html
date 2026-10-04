@@ -4,50 +4,161 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Salon</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="/site/style.css?v=2">
 <style>
-  .vitrine { max-width: 720px; margin: 0 auto; padding: 2rem 0; }
-  .en-tete h1 { margin-bottom: 0.3rem; }
-  .en-tete .telephone { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; margin-top: 0.4rem; }
+  body { padding: 0 0 6rem; }
 
-  .galerie { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.6rem; }
-  .galerie img { width: 100%; height: 140px; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--border); }
+  .vitrine { max-width: 880px; margin: 0 auto; }
+
+  /* ---- bandeau héro ---- */
+  .hero-salon {
+    position: relative;
+    height: 280px;
+    background: linear-gradient(135deg, var(--primary), #a78bfa);
+    display: flex; align-items: flex-end;
+    overflow: hidden;
+  }
+  .hero-salon img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  }
+  .hero-salon .voile {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.55) 100%);
+  }
+  .hero-salon .hero-contenu {
+    position: relative; z-index: 1; padding: 1.5rem 1.25rem; color: #fff; width: 100%;
+    max-width: 880px; margin: 0 auto;
+  }
+  .hero-contenu h1 { color: #fff; font-size: 1.7rem; margin: 0 0 0.35rem; }
+  .hero-contenu .etoiles span { color: #ffd54a; }
+  .hero-contenu .etoiles { color: rgba(255,255,255,0.4); }
+  .hero-contenu .note-inline .valeur, .hero-contenu .note-inline .nb-avis { color: #fff; }
+  .hero-contenu .note-vide { color: rgba(255,255,255,0.85); }
+
+  /* ---- barre d'infos rapides ---- */
+  .barre-infos {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.9rem 1.5rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow-sm); padding: 1rem 1.25rem; margin: -1.25rem 1.25rem 1.5rem;
+    position: relative; z-index: 2;
+  }
+  @media (min-width: 640px) { .barre-infos { margin: -1.25rem auto 1.5rem; max-width: calc(880px - 2.5rem); } }
+  .barre-infos .info-item { display: flex; align-items: center; gap: 0.45rem; font-size: 0.9rem; }
+  .barre-infos .info-item a { color: var(--ink); font-weight: 600; }
+
+  .contenu { padding: 0 1.25rem; }
+
+  .prestations-cat { margin-bottom: 1.5rem; }
+  .prestations-cat h3 { text-transform: none; font-size: 1rem; color: var(--ink); font-weight: 700; letter-spacing: 0; margin: 0 0 0.75rem; }
+  .grille-prestations { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; }
+  .carte-prestation {
+    display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 0.85rem 1rem;
+    background: #fff; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .carte-prestation:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); }
+  .carte-prestation .nom-prestation { font-size: 0.92rem; }
+  .carte-prestation .prix-prestation { font-weight: 700; color: var(--primary); white-space: nowrap; }
 
   .horaires-liste { list-style: none; margin: 0; padding: 0; }
   .horaires-liste li {
-    display: flex; justify-content: space-between; padding: 0.45rem 0;
+    display: flex; justify-content: space-between; padding: 0.55rem 0;
     border-bottom: 1px solid var(--border); font-size: 0.92rem; text-transform: capitalize;
   }
   .horaires-liste li:last-child { border-bottom: none; }
   .horaires-liste li.ferme { color: var(--muted); }
+  .horaires-liste li.aujourdhui { font-weight: 700; color: var(--primary); }
+  .horaires-liste li.aujourdhui .plage { color: var(--primary); }
 
-  .prestations-cat h3 { margin-top: 1.25rem; }
-  .prestations-cat table { font-size: 0.92rem; }
-  .prestations-cat td:last-child { text-align: right; font-weight: 600; }
+  .galerie { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.6rem; }
+  .galerie img {
+    width: 100%; height: 140px; object-fit: cover; border-radius: var(--radius);
+    border: 1px solid var(--border); cursor: zoom-in; transition: transform 0.15s ease;
+  }
+  .galerie img:hover { transform: scale(1.03); }
 
-  /* chatbot intégré, même rendu que chat.html mais comme section de la page */
-  .chat-section { display: flex; flex-direction: column; height: 520px; padding: 0; overflow: hidden; }
-  .messages { flex: 1; overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.6rem; }
-  .bulle { max-width: 75%; padding: 0.6rem 0.9rem; border-radius: var(--radius); font-size: 0.92rem; line-height: 1.4; animation: rise 0.2s ease; white-space: pre-wrap; }
-  .bulle.client { align-self: flex-end; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; }
-  .bulle.bot { align-self: flex-start; background: var(--primary-light); border: 1px solid var(--border); color: #1f2330; }
-  .typing { align-self: flex-start; font-size: 0.82rem; color: var(--muted); padding: 0 1.25rem; display: none; }
-  .typing.visible { display: block; }
-  .saisie { display: flex; gap: 0.6rem; padding: 1rem 1.25rem; border-top: 1px solid var(--border); }
-  .saisie input { flex: 1; }
+  .lightbox {
+    position: fixed; inset: 0; background: rgba(20, 18, 30, 0.9); z-index: 100;
+    display: none; align-items: center; justify-content: center; padding: 2rem; cursor: zoom-out;
+  }
+  .lightbox.visible { display: flex; }
+  .lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: var(--shadow-lg); }
+
+  .carte-map iframe { width: 100%; height: 280px; border: 0; border-radius: var(--radius); display: block; }
+
+  .avis-item { border-bottom: 1px solid var(--border); padding: 0.9rem 0; }
+  .avis-item:last-child { border-bottom: none; }
+  .avis-item .avis-entete { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.3rem; }
+  .avis-item .avis-date { font-size: 0.78rem; color: var(--muted); }
+  .avis-item p { margin: 0; font-size: 0.9rem; }
+
+  .form-avis { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+  .choix-note { display: flex; gap: 0.3rem; font-size: 1.6rem; }
+  .choix-note button {
+    border: none; background: none; padding: 0; width: auto; font-size: 1.6rem; line-height: 1;
+    color: var(--border); transition: color 0.1s ease; box-shadow: none;
+  }
+  .choix-note button:hover { transform: none; box-shadow: none; }
+  .choix-note button.actif, .choix-note button:hover { color: #f5b50a; }
+  #message-avis { font-size: 0.85rem; min-height: 1.1em; }
+  #message-avis.ok { color: var(--success); }
+  #message-avis.erreur { color: var(--danger); }
+
+  /* ---- bouton + panneau de chat flottant ---- */
+  .panneau-chat {
+    position: fixed; bottom: 5.5rem; right: 1.5rem; z-index: 60;
+    width: min(380px, calc(100vw - 2rem)); height: min(560px, calc(100vh - 8rem));
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--shadow-lg); display: none; flex-direction: column; overflow: hidden;
+  }
+  .panneau-chat.ouvert { display: flex; }
+  .panneau-chat .chat-entete {
+    padding: 0.9rem 1.1rem; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .panneau-chat .chat-entete h4 { margin: 0; font-size: 0.95rem; }
+  .panneau-chat .fermer-chat { border: none; background: none; box-shadow: none; font-size: 1.2rem; padding: 0; width: auto; color: var(--muted); }
+  .panneau-chat .fermer-chat:hover { box-shadow: none; transform: none; color: var(--ink); }
+  .panneau-chat .messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.55rem; }
+  .panneau-chat .bulle { max-width: 85%; padding: 0.55rem 0.8rem; border-radius: var(--radius); font-size: 0.88rem; line-height: 1.4; white-space: pre-wrap; animation: rise 0.2s ease; }
+  .panneau-chat .bulle.client { align-self: flex-end; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; }
+  .panneau-chat .bulle.bot { align-self: flex-start; background: var(--primary-light); border: 1px solid var(--border); color: #1f2330; }
+  .panneau-chat .typing { font-size: 0.78rem; color: var(--muted); padding: 0 1rem; display: none; }
+  .panneau-chat .typing.visible { display: block; }
+  .panneau-chat .saisie { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); }
+  .panneau-chat .saisie input { flex: 1; }
+
+  @media (max-width: 520px) {
+    .hero-salon { height: 220px; }
+    .barre-infos { margin: -1.25rem 0.75rem 1.5rem; }
+    .contenu { padding: 0 0.75rem; }
+    .bouton-flottant { right: 0.9rem; bottom: 0.9rem; }
+    .panneau-chat { right: 0.5rem; bottom: 4.5rem; width: calc(100vw - 1rem); }
+  }
 </style>
 </head>
 <body>
-  <div class="vitrine">
-    <p id="message"></p>
+  <p id="message" style="text-align:center;margin-top:3rem;color:var(--muted)"></p>
 
-    <div id="contenu" style="display:none">
-      <div class="section-card en-tete">
+  <div id="contenu-page" style="display:none">
+    <div class="hero-salon" id="hero-salon">
+      <div class="voile"></div>
+      <div class="hero-contenu">
         <h1 id="nom-salon"></h1>
-        <p class="subtitle" id="adresse-salon" style="margin:0"></p>
-        <p class="telephone" id="bloc-telephone" style="display:none">
-          📞 <a id="lien-telephone" href="#"></a>
-        </p>
+        <div id="note-hero"></div>
+      </div>
+    </div>
+
+    <div class="barre-infos">
+      <span class="info-item" id="info-adresse">📍 <span id="adresse-salon"></span></span>
+      <span class="info-item" id="info-telephone" style="display:none">📞 <a id="lien-telephone" href="#"></a></span>
+      <span class="badge-statut" id="badge-ouverture"></span>
+    </div>
+
+    <div class="vitrine contenu">
+      <div class="section-card" id="bloc-a-propos" style="display:none">
+        <h3 style="margin-top:0">À propos</h3>
+        <p id="description-salon" style="margin:0"></p>
       </div>
 
       <div class="section-card" id="bloc-galerie" style="display:none">
@@ -55,26 +166,59 @@
         <div class="galerie" id="galerie"></div>
       </div>
 
-      <div class="section-card">
-        <h3 style="margin-top:0">Horaires d'ouverture</h3>
-        <ul class="horaires-liste" id="horaires"></ul>
-      </div>
-
       <div class="section-card" id="bloc-prestations">
         <h3 style="margin-top:0">Prestations</h3>
         <div id="prestations"></div>
       </div>
 
-      <div class="section-card chat-section">
-        <div class="messages" id="messages"></div>
-        <div class="typing" id="typing">Claire est en train d'écrire…</div>
-        <div class="saisie">
-          <input type="text" id="champ-message" placeholder="Écrivez votre message pour prendre rendez-vous…" autocomplete="off">
-          <button class="primary" id="bouton-envoyer">Envoyer</button>
-        </div>
+      <div class="section-card">
+        <h3 style="margin-top:0">Horaires d'ouverture</h3>
+        <ul class="horaires-liste" id="horaires"></ul>
+      </div>
+
+      <div class="section-card carte-map" id="bloc-carte" style="display:none">
+        <h3 style="margin-top:0">Où nous trouver</h3>
+        <iframe id="iframe-carte" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      </div>
+
+      <div class="section-card" id="bloc-avis">
+        <h3 style="margin-top:0">Avis clients</h3>
+        <div id="liste-avis"></div>
+
+        <form class="form-avis" id="form-avis">
+          <label>Votre note</label>
+          <div class="choix-note" id="choix-note">
+            <button type="button" data-note="1">★</button>
+            <button type="button" data-note="2">★</button>
+            <button type="button" data-note="3">★</button>
+            <button type="button" data-note="4">★</button>
+            <button type="button" data-note="5">★</button>
+          </div>
+          <label for="commentaire-avis">Votre commentaire (optionnel)</label>
+          <textarea id="commentaire-avis" rows="3" maxlength="500" placeholder="Votre expérience dans ce salon…"></textarea>
+          <button class="primary" type="submit" style="align-self:flex-start">Publier mon avis</button>
+          <p id="message-avis"></p>
+        </form>
       </div>
     </div>
   </div>
+
+  <button class="primary bouton-flottant" id="bouton-rdv" style="display:none">💬 Prendre rendez-vous</button>
+
+  <div class="panneau-chat" id="panneau-chat">
+    <div class="chat-entete">
+      <h4 id="titre-chat">Prendre rendez-vous</h4>
+      <button class="fermer-chat" id="fermer-chat">✕</button>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="typing" id="typing">Claire est en train d'écrire…</div>
+    <div class="saisie">
+      <input type="text" id="champ-message" placeholder="Écrivez votre message…" autocomplete="off">
+      <button class="primary" id="bouton-envoyer">Envoyer</button>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lightbox"><img id="lightbox-img" src="" alt=""></div>
 
 <script>
 const JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
@@ -82,16 +226,44 @@ const slug = location.pathname.split('/').filter(Boolean).pop();
 
 function afficherMessage(texte) {
   document.getElementById('message').textContent = texte;
-  document.getElementById('contenu').style.display = 'none';
+  document.getElementById('contenu-page').style.display = 'none';
+}
+
+function etoilesHtml(note, nombreAvis) {
+  if (note === null || note === undefined) return '<span class="note-vide">Pas encore noté</span>';
+  const pct = Math.max(0, Math.min(100, (note / 5) * 100));
+  return `<div class="note-inline">
+    <div class="etoiles">★★★★★<span style="width:${pct}%">★★★★★</span></div>
+    <span class="valeur">${note.toFixed(1)}</span>
+    <span class="nb-avis">(${nombreAvis} avis)</span>
+  </div>`;
+}
+
+function libelle(nomInterne) {
+  const texte = nomInterne.replaceAll('_', ' ');
+  return texte.charAt(0).toUpperCase() + texte.slice(1);
 }
 
 function rendreHoraires(horaires) {
-  document.getElementById('horaires').innerHTML = JOURS.map(jour => {
+  const jourIndexAujourdhui = (new Date().getDay() + 6) % 7; // getDay(): 0=dimanche → JOURS index 6
+  document.getElementById('horaires').innerHTML = JOURS.map((jour, index) => {
     const plage = horaires[jour];
-    return plage
-      ? `<li><span>${jour}</span><span>${plage.ouverture} – ${plage.fermeture}</span></li>`
-      : `<li class="ferme"><span>${jour}</span><span>Fermé</span></li>`;
+    const estAujourdhui = index === jourIndexAujourdhui;
+    const classes = [!plage ? 'ferme' : '', estAujourdhui ? 'aujourdhui' : ''].filter(Boolean).join(' ');
+    const texte = plage ? `<span class="plage">${plage.ouverture} – ${plage.fermeture}</span>` : '<span>Fermé</span>';
+    return `<li class="${classes}"><span>${jour}${estAujourdhui ? ' (aujourd\'hui)' : ''}</span>${texte}</li>`;
   }).join('');
+}
+
+function calculerStatutOuverture(horaires, fermetures) {
+  const maintenant = new Date();
+  const anneeMoisJour = maintenant.toISOString().slice(0, 10);
+  if (fermetures.includes(anneeMoisJour)) return false;
+  const jour = JOURS[(maintenant.getDay() + 6) % 7];
+  const plage = horaires[jour];
+  if (!plage) return false;
+  const heureActuelle = String(maintenant.getHours()).padStart(2, '0') + ':' + String(maintenant.getMinutes()).padStart(2, '0');
+  return heureActuelle >= plage.ouverture && heureActuelle < plage.fermeture;
 }
 
 function rendrePrestations(prestations) {
@@ -100,12 +272,22 @@ function rendrePrestations(prestations) {
   if (!categories.length) { bloc.style.display = 'none'; return; }
   document.getElementById('prestations').innerHTML = categories.map(([cat, items]) => `
     <div class="prestations-cat">
-      <h3>${cat}</h3>
-      <table>${Object.entries(items).map(([nom, prix]) => `
-        <tr><td>${nom.replaceAll('_', ' ')}</td><td>${prix} €</td></tr>
-      `).join('')}</table>
+      <h3>${libelle(cat)}</h3>
+      <div class="grille-prestations">${Object.entries(items).map(([nom, prix]) => `
+        <div class="carte-prestation">
+          <span class="nom-prestation">${libelle(nom)}</span>
+          <span class="prix-prestation">${prix} €</span>
+        </div>`).join('')}</div>
     </div>`).join('');
 }
+
+function ouvrirLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox').classList.add('visible');
+}
+document.getElementById('lightbox').addEventListener('click', () => {
+  document.getElementById('lightbox').classList.remove('visible');
+});
 
 function rendreGalerie(salonId, photos) {
   if (!photos.length) return;
@@ -113,12 +295,100 @@ function rendreGalerie(salonId, photos) {
   document.getElementById('galerie').innerHTML = photos.map(nom =>
     `<img src="/uploads/salons/${salonId}/${nom}" alt="Photo du salon" loading="lazy">`
   ).join('');
+  document.querySelectorAll('.galerie img').forEach(img => {
+    img.addEventListener('click', () => ouvrirLightbox(img.src));
+  });
+}
+
+function rendreHero(salon) {
+  const heroEl = document.getElementById('hero-salon');
+  if (salon.photos && salon.photos.length) {
+    const img = document.createElement('img');
+    img.src = `/uploads/salons/${salon.id}/${salon.photos[0]}`;
+    img.alt = salon.nom;
+    heroEl.prepend(img);
+  }
+  document.getElementById('note-hero').innerHTML = etoilesHtml(salon.note_moyenne, salon.nombre_avis);
+}
+
+function rendreCarte(salon) {
+  if (!salon.latitude || !salon.longitude) return;
+  document.getElementById('bloc-carte').style.display = 'block';
+  const delta = 0.01;
+  const bbox = [salon.longitude - delta, salon.latitude - delta, salon.longitude + delta, salon.latitude + delta].join(',');
+  document.getElementById('iframe-carte').src =
+    `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${salon.latitude},${salon.longitude}`;
+}
+
+async function chargerAvis() {
+  const res = await fetch(`/api/public/salons/${slug}/avis`);
+  if (!res.ok) return;
+  const avis = await res.json();
+  const liste = document.getElementById('liste-avis');
+  if (!avis.length) {
+    liste.innerHTML = '<p style="color:var(--muted);font-size:0.9rem">Aucun avis pour le moment. Soyez le premier à en laisser un !</p>';
+    return;
+  }
+  liste.innerHTML = avis.map(a => `
+    <div class="avis-item">
+      <div class="avis-entete">
+        <div class="etoiles" style="font-size:0.85rem">★★★★★<span style="width:${(a.note / 5) * 100}%">★★★★★</span></div>
+        <span class="avis-date">${new Date(a.cree_le).toLocaleDateString('fr-FR')}</span>
+      </div>
+      ${a.commentaire ? `<p>${a.commentaire}</p>` : ''}
+    </div>`).join('');
+}
+
+function initialiserFormulaireAvis() {
+  let noteChoisie = 0;
+  const boutons = document.querySelectorAll('#choix-note button');
+  boutons.forEach(bouton => {
+    bouton.addEventListener('click', () => {
+      noteChoisie = Number(bouton.dataset.note);
+      boutons.forEach(b => b.classList.toggle('actif', Number(b.dataset.note) <= noteChoisie));
+    });
+  });
+
+  document.getElementById('form-avis').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const messageEl = document.getElementById('message-avis');
+    messageEl.className = '';
+    if (!noteChoisie) {
+      messageEl.textContent = 'Choisissez une note avant de publier.';
+      messageEl.className = 'erreur';
+      return;
+    }
+    const commentaire = document.getElementById('commentaire-avis').value.trim();
+    const res = await fetch(`/api/public/salons/${slug}/avis`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: noteChoisie, commentaire: commentaire || null }),
+    });
+    if (res.status === 429) {
+      messageEl.textContent = 'Vous avez déjà laissé un avis pour ce salon aujourd\'hui.';
+      messageEl.className = 'erreur';
+      return;
+    }
+    if (!res.ok) {
+      messageEl.textContent = 'Une erreur est survenue, réessayez.';
+      messageEl.className = 'erreur';
+      return;
+    }
+    messageEl.textContent = 'Merci pour votre avis !';
+    messageEl.className = 'ok';
+    document.getElementById('commentaire-avis').value = '';
+    noteChoisie = 0;
+    boutons.forEach(b => b.classList.remove('actif'));
+    chargerAvis();
+  });
 }
 
 function demarrerChat(salonId) {
   const messagesEl = document.getElementById('messages');
   const typingEl = document.getElementById('typing');
   const champEl = document.getElementById('champ-message');
+  const panneauEl = document.getElementById('panneau-chat');
+  const boutonRdvEl = document.getElementById('bouton-rdv');
 
   function ajouterBulle(texte, role) {
     const bulle = document.createElement('div');
@@ -135,6 +405,7 @@ function demarrerChat(salonId) {
   socket.addEventListener('message', (event) => {
     const data = JSON.parse(event.data);
     typingEl.classList.remove('visible');
+    if (data.nom_salon) document.getElementById('titre-chat').textContent = data.nom_salon;
     if (data.role === 'assistant' || data.role === 'error') ajouterBulle(data.content, 'bot');
   });
   socket.addEventListener('close', () => { typingEl.classList.remove('visible'); });
@@ -150,11 +421,15 @@ function demarrerChat(salonId) {
 
   document.getElementById('bouton-envoyer').addEventListener('click', envoyer);
   champEl.addEventListener('keydown', (event) => { if (event.key === 'Enter') envoyer(); });
+
+  boutonRdvEl.style.display = 'flex';
+  boutonRdvEl.addEventListener('click', () => { panneauEl.classList.add('ouvert'); champEl.focus(); });
+  document.getElementById('fermer-chat').addEventListener('click', () => panneauEl.classList.remove('ouvert'));
 }
 
 async function charger() {
   if (!slug) {
-    afficherMessage("Salon introuvable.");
+    afficherMessage('Salon introuvable.');
     return;
   }
 
@@ -165,21 +440,35 @@ async function charger() {
   }
 
   const salon = await res.json();
-  document.getElementById('contenu').style.display = 'block';
+  document.getElementById('contenu-page').style.display = 'block';
   document.title = salon.nom;
   document.getElementById('nom-salon').textContent = salon.nom;
   document.getElementById('adresse-salon').textContent = salon.adresse_complete || '';
 
   if (salon.numero_twilio) {
-    document.getElementById('bloc-telephone').style.display = 'block';
+    document.getElementById('info-telephone').style.display = 'inline-flex';
     const lien = document.getElementById('lien-telephone');
     lien.href = `tel:${salon.numero_twilio}`;
     lien.textContent = salon.numero_twilio;
   }
 
+  const ouvert = calculerStatutOuverture(salon.horaires, salon.fermetures_exceptionnelles);
+  const badge = document.getElementById('badge-ouverture');
+  badge.textContent = ouvert ? 'Ouvert' : 'Fermé';
+  badge.className = `badge-statut ${ouvert ? 'ouvert' : 'ferme'}`;
+
+  if (salon.description) {
+    document.getElementById('bloc-a-propos').style.display = 'block';
+    document.getElementById('description-salon').textContent = salon.description;
+  }
+
+  rendreHero(salon);
   rendreGalerie(salon.id, salon.photos);
   rendreHoraires(salon.horaires);
   rendrePrestations(salon.prestations);
+  rendreCarte(salon);
+  chargerAvis();
+  initialiserFormulaireAvis();
   demarrerChat(salon.id);
 }
 
