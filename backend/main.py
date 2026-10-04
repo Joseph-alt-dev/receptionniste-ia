@@ -1,7 +1,11 @@
+import datetime as dt
+import hashlib
 import io
 import json
 import mimetypes
+import re
 import uuid
+from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect, status
@@ -9,8 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.adresses import composer_adresse
 from backend.auth import (
     check_login_rate_limit,
     create_access_token,
@@ -23,9 +29,20 @@ from backend.auth import (
     rotate_refresh_token,
 )
 from backend.config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE, CORS_ORIGINS, REFRESH_TOKEN_EXPIRE_DAYS
-from backend.models import Compte, RefreshToken, Salon
+from backend.geocodage import geocoder_adresse
+from backend.models import Avis, Compte, RefreshToken, Salon
 from backend.oauth import router as oauth_router
-from backend.schemas import CompteAdminOut, LoginRequest, SalonCreate, SalonOut, SalonUpdate, SignupRequest
+from backend.schemas import (
+    AvisCreate,
+    AvisOut,
+    CompteAdminOut,
+    LoginRequest,
+    SalonCreate,
+    SalonOut,
+    SalonRechercheResultat,
+    SalonUpdate,
+    SignupRequest,
+)
 from backend.security import hash_password, verifier_password
 from backend.slugs import generer_slug
 from salon_bot import ConversationTexte
@@ -122,12 +139,27 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-def _salon_to_dict(salon: Salon) -> dict:
+def _avis_stats(salon_id: int, db: Session) -> tuple[float | None, int]:
+    moyenne, nombre = db.query(func.avg(Avis.note), func.count(Avis.id)).filter_by(salon_id=salon_id).one()
+    return (round(moyenne, 1) if moyenne is not None else None), nombre
+
+
+def _salon_to_dict(salon: Salon, db: Session) -> dict:
+    note_moyenne, nombre_avis = _avis_stats(salon.id, db)
     return {
         "id": salon.id,
         "nom": salon.nom,
         "slug": salon.slug,
-        "adresse": salon.adresse,
+        "numero_et_rue": salon.numero_et_rue,
+        "complement": salon.complement,
+        "code_postal": salon.code_postal,
+        "ville": salon.ville,
+        "departement": salon.departement,
+        "pays": salon.pays,
+        "description": salon.description,
+        "adresse_complete": composer_adresse(salon.numero_et_rue, salon.complement, salon.code_postal, salon.ville, salon.pays),
+        "latitude": salon.latitude,
+        "longitude": salon.longitude,
         "numero_twilio": salon.numero_twilio,
         "est_demo": salon.est_demo,
         "calendrier_connecte": salon.calendrier_connecte,
@@ -135,6 +167,8 @@ def _salon_to_dict(salon: Salon) -> dict:
         "fermetures_exceptionnelles": json.loads(salon.fermetures_exceptionnelles),
         "prestations": json.loads(salon.prestations),
         "photos": json.loads(salon.photos),
+        "note_moyenne": note_moyenne,
+        "nombre_avis": nombre_avis,
     }
 
 
@@ -149,16 +183,25 @@ def _get_owned_salon(salon_id: int, compte: Compte, db: Session) -> Salon:
 @app.get("/api/salons", response_model=list[SalonOut])
 def lister_salons(compte: Compte = Depends(get_current_compte), db: Session = Depends(get_db)):
     salons = db.query(Salon).filter_by(compte_id=compte.id).all()
-    return [_salon_to_dict(s) for s in salons]
+    return [_salon_to_dict(s, db) for s in salons]
 
 
 @app.post("/api/salons", response_model=SalonOut, status_code=status.HTTP_201_CREATED)
 def creer_salon(payload: SalonCreate, compte: Compte = Depends(get_current_compte), db: Session = Depends(get_db)):
+    latitude, longitude = geocoder_adresse(payload.numero_et_rue, payload.code_postal, payload.ville, payload.pays)
     salon = Salon(
         compte_id=compte.id,
         nom=payload.nom,
         slug=generer_slug(payload.nom, db),
-        adresse=payload.adresse,
+        numero_et_rue=payload.numero_et_rue,
+        complement=payload.complement,
+        code_postal=payload.code_postal,
+        ville=payload.ville,
+        departement=payload.departement,
+        pays=payload.pays,
+        description=payload.description,
+        latitude=latitude,
+        longitude=longitude,
         google_calendar_id="",  # pas encore de champ dédié dans le dashboard, voir étape 4
         horaires=payload.horaires.model_dump_json(),
         fermetures_exceptionnelles=json.dumps([d.isoformat() for d in payload.fermetures_exceptionnelles]),
@@ -166,12 +209,60 @@ def creer_salon(payload: SalonCreate, compte: Compte = Depends(get_current_compt
     )
     db.add(salon)
     db.commit()
-    return _salon_to_dict(salon)
+    return _salon_to_dict(salon, db)
+
+
+def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    rayon_terre_km = 6371
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    return 2 * rayon_terre_km * asin(sqrt(a))
+
+
+@app.get("/api/salons/recherche", response_model=list[SalonRechercheResultat])
+def rechercher_salons(
+    texte: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    tri: str | None = None,
+    db: Session = Depends(get_db),
+):
+    requete = db.query(Salon)
+    if texte:
+        motif = f"%{texte.strip()}%"
+        requete = requete.filter((Salon.nom.ilike(motif)) | (Salon.ville.ilike(motif)))
+
+    resultats = []
+    for salon in requete.all():
+        note_moyenne, nombre_avis = _avis_stats(salon.id, db)
+        photos = json.loads(salon.photos)
+        distance_km = None
+        if latitude is not None and longitude is not None and salon.latitude is not None and salon.longitude is not None:
+            distance_km = round(_distance_km(latitude, longitude, salon.latitude, salon.longitude), 1)
+        resultats.append({
+            "nom": salon.nom,
+            "slug": salon.slug,
+            "ville": salon.ville,
+            "note_moyenne": note_moyenne,
+            "nombre_avis": nombre_avis,
+            "photo_principale": f"/uploads/salons/{salon.id}/{photos[0]}" if photos else None,
+            "distance_km": distance_km,
+        })
+
+    tri_effectif = tri or ("distance" if latitude is not None and longitude is not None else "note")
+    if tri_effectif == "note":
+        resultats.sort(key=lambda r: (r["note_moyenne"] is None, -(r["note_moyenne"] or 0)))
+    else:
+        resultats.sort(key=lambda r: (r["distance_km"] is None, r["distance_km"] or 0))
+
+    return resultats
+
 
 
 @app.get("/api/salons/{salon_id}", response_model=SalonOut)
 def lire_salon(salon_id: int, compte: Compte = Depends(get_current_compte), db: Session = Depends(get_db)):
-    return _salon_to_dict(_get_owned_salon(salon_id, compte, db))
+    return _salon_to_dict(_get_owned_salon(salon_id, compte, db), db)
 
 
 @app.put("/api/salons/{salon_id}", response_model=SalonOut)
@@ -182,13 +273,27 @@ def modifier_salon(
     db: Session = Depends(get_db),
 ):
     salon = _get_owned_salon(salon_id, compte, db)
+    adresse_changee = (
+        payload.numero_et_rue != salon.numero_et_rue
+        or payload.code_postal != salon.code_postal
+        or payload.ville != salon.ville
+        or payload.pays != salon.pays
+    )
     salon.nom = payload.nom
-    salon.adresse = payload.adresse
+    salon.numero_et_rue = payload.numero_et_rue
+    salon.complement = payload.complement
+    salon.code_postal = payload.code_postal
+    salon.ville = payload.ville
+    salon.departement = payload.departement
+    salon.pays = payload.pays
+    salon.description = payload.description
+    if adresse_changee:
+        salon.latitude, salon.longitude = geocoder_adresse(payload.numero_et_rue, payload.code_postal, payload.ville, payload.pays)
     salon.horaires = payload.horaires.model_dump_json()
     salon.fermetures_exceptionnelles = json.dumps([d.isoformat() for d in payload.fermetures_exceptionnelles])
     salon.prestations = payload.prestations.model_dump_json()
     db.commit()
-    return _salon_to_dict(salon)
+    return _salon_to_dict(salon, db)
 
 
 @app.post("/api/salons/{salon_id}/photos", response_model=SalonOut)
@@ -228,7 +333,7 @@ async def ajouter_photo(
     photos.append(nom_fichier)
     salon.photos = json.dumps(photos)
     db.commit()
-    return _salon_to_dict(salon)
+    return _salon_to_dict(salon, db)
 
 
 @app.delete("/api/salons/{salon_id}/photos/{nom_fichier}", response_model=SalonOut)
@@ -246,7 +351,7 @@ def retirer_photo(
     salon.photos = json.dumps(photos)
     db.commit()
     (UPLOADS_DIR / "salons" / str(salon_id) / nom_fichier).unlink(missing_ok=True)
-    return _salon_to_dict(salon)
+    return _salon_to_dict(salon, db)
 
 
 @app.get("/api/public/salons/{slug}")
@@ -255,7 +360,42 @@ def lire_salon_public(slug: str, db: Session = Depends(get_db)):
     salon = db.query(Salon).filter_by(slug=slug).first()
     if not salon:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Salon introuvable")
-    return _salon_to_dict(salon)
+    return _salon_to_dict(salon, db)
+
+
+def _hash_ip(ip: str) -> str:
+    return hashlib.sha256(ip.encode()).hexdigest()
+
+
+@app.get("/api/public/salons/{slug}/avis", response_model=list[AvisOut])
+def lister_avis(slug: str, db: Session = Depends(get_db)):
+    salon = db.query(Salon).filter_by(slug=slug).first()
+    if not salon:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Salon introuvable")
+    return db.query(Avis).filter_by(salon_id=salon.id).order_by(Avis.cree_le.desc()).all()
+
+
+@app.post("/api/public/salons/{slug}/avis", response_model=AvisOut, status_code=status.HTTP_201_CREATED)
+def deposer_avis(slug: str, payload: AvisCreate, request: Request, db: Session = Depends(get_db)):
+    salon = db.query(Salon).filter_by(slug=slug).first()
+    if not salon:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Salon introuvable")
+
+    ip_hash = _hash_ip(request.client.host)
+    depuis_24h = dt.datetime.utcnow() - dt.timedelta(days=1)
+    deja_depose = (
+        db.query(Avis)
+        .filter(Avis.salon_id == salon.id, Avis.ip_hash == ip_hash, Avis.cree_le >= depuis_24h)
+        .first()
+    )
+    if deja_depose:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Un seul avis par jour pour ce salon")
+
+    commentaire = re.sub(r"[\x00-\x1f\x7f]", "", payload.commentaire).strip() if payload.commentaire else None
+    avis = Avis(salon_id=salon.id, note=payload.note, commentaire=commentaire or None, ip_hash=ip_hash)
+    db.add(avis)
+    db.commit()
+    return avis
 
 
 @app.get("/admin/comptes", response_model=list[CompteAdminOut])

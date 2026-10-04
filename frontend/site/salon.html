@@ -21,8 +21,37 @@
         <h3 style="margin-top:0">Informations générales</h3>
         <label>Nom du salon</label>
         <input type="text" id="nom">
-        <label style="margin-top:0.6rem">Adresse</label>
-        <input type="text" id="adresse">
+
+        <label style="margin-top:0.6rem">Numéro et rue</label>
+        <input type="text" id="numero-et-rue" placeholder="12 rue de la Convention">
+        <label style="margin-top:0.6rem">Complément d'adresse (optionnel)</label>
+        <input type="text" id="complement" placeholder="Bâtiment B, 2e étage...">
+        <div class="ligne" style="margin-top:0.6rem">
+          <div>
+            <label>Code postal</label>
+            <input type="text" id="code-postal" placeholder="75015">
+          </div>
+          <div>
+            <label>Ville</label>
+            <input type="text" id="ville" placeholder="Paris">
+          </div>
+        </div>
+        <div class="ligne" style="margin-top:0.6rem">
+          <div>
+            <label>Département (optionnel)</label>
+            <input type="text" id="departement" placeholder="Paris">
+          </div>
+          <div>
+            <label>Pays</label>
+            <input type="text" id="pays" value="France">
+          </div>
+        </div>
+        <p id="erreur-adresse" style="margin:0.4rem 0 0; color:#c62828; font-size:0.85rem"></p>
+
+        <details style="margin-top:1rem">
+          <summary class="subtitle" style="cursor:pointer">Description du salon (optionnelle)</summary>
+          <textarea id="description" maxlength="500" rows="3" style="width:100%; margin-top:0.5rem" placeholder="Quelques mots sur votre salon..."></textarea>
+        </details>
       </div>
 
       <div class="section-card">
@@ -249,7 +278,13 @@ async function charger() {
   document.getElementById('contenu').style.display = 'block';
   document.getElementById('titre').textContent = salon.nom;
   document.getElementById('nom').value = salon.nom;
-  document.getElementById('adresse').value = salon.adresse || '';
+  document.getElementById('numero-et-rue').value = salon.numero_et_rue || '';
+  document.getElementById('complement').value = salon.complement || '';
+  document.getElementById('code-postal').value = salon.code_postal || '';
+  document.getElementById('ville').value = salon.ville || '';
+  document.getElementById('departement').value = salon.departement || '';
+  document.getElementById('pays').value = salon.pays || 'France';
+  document.getElementById('description').value = salon.description || '';
   document.getElementById('numero-twilio').textContent = salon.numero_twilio || 'Non attribué pour le moment';
 
   const lienPublic = document.getElementById('lien-public');
@@ -325,9 +360,16 @@ document.getElementById('ajouter-fermeture').addEventListener('click', () => {
 });
 
 document.getElementById('enregistrer').addEventListener('click', async () => {
+  document.getElementById('erreur-adresse').textContent = '';
   const payload = {
     nom: document.getElementById('nom').value,
-    adresse: document.getElementById('adresse').value || null,
+    numero_et_rue: document.getElementById('numero-et-rue').value || null,
+    complement: document.getElementById('complement').value || null,
+    code_postal: document.getElementById('code-postal').value || null,
+    ville: document.getElementById('ville').value || null,
+    departement: document.getElementById('departement').value || null,
+    pays: document.getElementById('pays').value || 'France',
+    description: document.getElementById('description').value || '',
     horaires: lireHoraires(),
     fermetures_exceptionnelles: fermetures,
     prestations: lirePrestations(),
@@ -344,6 +386,11 @@ document.getElementById('enregistrer').addEventListener('click', async () => {
     document.getElementById('message').textContent = 'Enregistré.';
     document.getElementById('message').style.color = '#1e7e34';
     charger();
+  } else if (res.status === 422) {
+    const detail = (await res.json().catch(() => null))?.detail;
+    const messageErreur = Array.isArray(detail) ? detail.map(d => d.msg).join(' ; ') : "Code postal invalide.";
+    document.getElementById('erreur-adresse').textContent = messageErreur;
+    document.getElementById('message').textContent = '';
   } else {
     const detail = (await res.json().catch(() => null))?.detail;
     document.getElementById('message').textContent = detail ? JSON.stringify(detail) : "Erreur lors de l'enregistrement.";

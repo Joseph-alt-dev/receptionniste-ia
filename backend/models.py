@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 
 from backend.database import Base
@@ -25,7 +25,15 @@ class Salon(Base):
     compte_id = Column(Integer, ForeignKey("comptes.id"), nullable=False, index=True)
     nom = Column(String(255), nullable=False)
     slug = Column(String(255), unique=True, nullable=False, index=True)  # identifiant pour l'URL publique /salon/<slug>
-    adresse = Column(String(255))
+    numero_et_rue = Column(String(255))
+    complement = Column(String(255))
+    code_postal = Column(String(10))
+    ville = Column(String(255))
+    departement = Column(String(255))
+    pays = Column(String(100), nullable=False, default="France")
+    latitude = Column(Float)  # calculée automatiquement via Nominatim (voir backend/geocodage.py), jamais saisie par le propriétaire
+    longitude = Column(Float)
+    description = Column(String(500), nullable=False, default="")
     numero_twilio = Column(String(32), unique=True)  # nullable tant que pas de ligne Twilio
     google_calendar_id = Column(String(255))  # "primary" une fois connecté via OAuth (ou fixe pour le salon de démo)
     google_refresh_token = Column(Text)  # chiffré (Fernet), jamais en clair — voir backend/crypto.py
@@ -38,6 +46,20 @@ class Salon(Base):
     modifie_le = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     compte = relationship("Compte", back_populates="salons")
+    avis = relationship("Avis", back_populates="salon")
+
+
+class Avis(Base):
+    __tablename__ = "avis"
+
+    id = Column(Integer, primary_key=True)
+    salon_id = Column(Integer, ForeignKey("salons.id"), nullable=False, index=True)
+    note = Column(Integer, nullable=False)  # 1 à 5
+    commentaire = Column(String(500))
+    ip_hash = Column(String(64), nullable=False, index=True)  # sha256(ip) — jamais l'IP en clair, voir anti-spam dans backend/main.py
+    cree_le = Column(DateTime, server_default=func.now())
+
+    salon = relationship("Salon", back_populates="avis")
 
 
 class RefreshToken(Base):

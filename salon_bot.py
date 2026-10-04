@@ -20,6 +20,7 @@ from openai import AsyncOpenAI
 from pipecat.adapters.schemas.direct_function import DirectFunctionWrapper
 from pipecat.services.llm_service import FunctionCallParams
 
+from backend.adresses import composer_adresse
 from backend.config import GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET
 from backend.crypto import dechiffrer
 from backend.database import SessionLocal
@@ -64,7 +65,8 @@ def construire_system_prompt(salon: Salon) -> str:
     ) or "aucun horaire renseigné pour le moment"
 
     categories = ", ".join(json.loads(salon.prestations).keys()) or "aucune catégorie renseignée"
-    adresse = f", situé {salon.adresse}" if salon.adresse else ""
+    adresse_complete = composer_adresse(salon.numero_et_rue, salon.complement, salon.code_postal, salon.ville, salon.pays)
+    adresse = f", situé {adresse_complete}" if adresse_complete else ""
 
     maintenant = dt.datetime.now(PARIS_TZ)
     aujourdhui = f"{JOURS[maintenant.weekday()]} {maintenant.date().isoformat()}, il est {maintenant.strftime('%H:%M')}"

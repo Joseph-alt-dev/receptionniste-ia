@@ -168,7 +168,7 @@ async function charger() {
   document.getElementById('contenu').style.display = 'block';
   document.title = salon.nom;
   document.getElementById('nom-salon').textContent = salon.nom;
-  document.getElementById('adresse-salon').textContent = salon.adresse || '';
+  document.getElementById('adresse-salon').textContent = salon.adresse_complete || '';
 
   if (salon.numero_twilio) {
     document.getElementById('bloc-telephone').style.display = 'block';

@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 
 from backend.database import Base, SessionLocal, engine
+from backend.geocodage import geocoder_adresse
 from backend.models import Compte, Salon
 from backend.security import hash_password
 from backend.slugs import generer_slug
@@ -64,11 +65,19 @@ def _seed_salon_demo(db):
     db.add(compte_demo)
     db.flush()  # pour obtenir compte_demo.id avant de créer le salon
 
+    latitude, longitude = geocoder_adresse("12 Rue de la Convention", "75015", "Paris", "France")
+
     salon_demo = Salon(
         compte_id=compte_demo.id,
         nom="Belle Étoile",
         slug=generer_slug("Belle Étoile", db),
-        adresse="15e arrondissement, Paris",
+        numero_et_rue="12 Rue de la Convention",
+        code_postal="75015",
+        ville="Paris",
+        pays="France",
+        latitude=latitude,
+        longitude=longitude,
+        description="Un salon de coiffure convivial au cœur du 15e arrondissement de Paris.",
         google_calendar_id="joseph.quesne@ensae.fr",
         est_demo=True,
         horaires=json.dumps(HORAIRES_BELLE_ETOILE),

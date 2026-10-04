@@ -1,6 +1,7 @@
-from datetime import date
+import re
+from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class SignupRequest(BaseModel):
@@ -60,10 +61,22 @@ class Prestations(BaseModel):
 class SalonBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
     nom: str = Field(min_length=1, max_length=255)
-    adresse: str | None = Field(default=None, max_length=255)
+    numero_et_rue: str | None = Field(default=None, max_length=255)
+    complement: str | None = Field(default=None, max_length=255)
+    code_postal: str | None = Field(default=None, max_length=10)
+    ville: str | None = Field(default=None, max_length=255)
+    departement: str | None = Field(default=None, max_length=255)
+    pays: str = Field(default="France", max_length=100)
+    description: str = Field(default="", max_length=500)
     horaires: Horaires
     fermetures_exceptionnelles: list[date] = Field(default_factory=list)
     prestations: Prestations
+
+    @model_validator(mode="after")
+    def valider_code_postal(self):
+        if self.pays.strip().lower() == "france" and self.code_postal and not re.fullmatch(r"\d{5}", self.code_postal.strip()):
+            raise ValueError("Code postal invalide : 5 chiffres attendus pour la France")
+        return self
 
 
 class SalonCreate(SalonBase):
@@ -81,6 +94,33 @@ class SalonOut(SalonBase):
     est_demo: bool
     calendrier_connecte: bool
     photos: list[str] = Field(default_factory=list)
+    adresse_complete: str = ""
+    latitude: float | None = None
+    longitude: float | None = None
+    note_moyenne: float | None = None
+    nombre_avis: int = 0
+
+
+class AvisCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    note: int = Field(ge=1, le=5)
+    commentaire: str | None = Field(default=None, max_length=500)
+
+
+class AvisOut(BaseModel):
+    note: int
+    commentaire: str | None = None
+    cree_le: datetime
+
+
+class SalonRechercheResultat(BaseModel):
+    nom: str
+    slug: str
+    ville: str | None = None
+    note_moyenne: float | None = None
+    nombre_avis: int = 0
+    photo_principale: str | None = None
+    distance_km: float | None = None
 
 
 class SalonResume(BaseModel):
