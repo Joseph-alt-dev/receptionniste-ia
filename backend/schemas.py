@@ -76,9 +76,11 @@ class SalonUpdate(SalonBase):
 
 class SalonOut(SalonBase):
     id: int
+    slug: str
     numero_twilio: str | None = None
     est_demo: bool
     calendrier_connecte: bool
+    photos: list[str] = Field(default_factory=list)
 
 
 class SalonResume(BaseModel):

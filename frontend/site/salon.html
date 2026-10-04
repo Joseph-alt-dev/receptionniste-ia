@@ -31,9 +31,21 @@
       </div>
 
       <div class="section-card">
+        <h3 style="margin-top:0">Page publique</h3>
+        <p style="margin:0">Vos clients peuvent prendre rendez-vous sur : <a id="lien-public" target="_blank" rel="noopener"></a></p>
+      </div>
+
+      <div class="section-card">
         <h3 style="margin-top:0">Google Agenda</h3>
         <p style="margin: 0 0 0.75rem">Statut : <span id="statut-agenda" class="badge"></span></p>
         <a id="lien-connexion-agenda" href="#"><button type="button">Connecter mon Google Agenda</button></a>
+      </div>
+
+      <div class="section-card">
+        <h3 style="margin-top:0">Photos du salon</h3>
+        <p class="subtitle" id="photos-info" style="margin:0 0 0.75rem">0/5 photos</p>
+        <div class="galerie-photos" id="galerie-photos"></div>
+        <input type="file" id="photo-input" accept="image/jpeg,image/png,image/webp" style="margin-top:0.75rem">
       </div>
 
       <div class="section-card">
@@ -66,6 +78,7 @@ const salonId = new URLSearchParams(location.search).get('id');
 
 let fermetures = [];
 let prestations = { femme: {}, homme: {}, enfant: {} };
+let photos = [];
 
 function afficherMessage(texte) {
   document.getElementById('message').textContent = texte;
@@ -163,6 +176,55 @@ function lirePrestations() {
   return resultat;
 }
 
+function rendrePhotos() {
+  document.getElementById('photos-info').textContent = `${photos.length}/5 photos`;
+  document.getElementById('photo-input').disabled = photos.length >= 5;
+  document.getElementById('galerie-photos').innerHTML = photos.map(nom => `
+    <div class="photo-miniature" data-nom="${nom}">
+      <img src="/uploads/salons/${salonId}/${nom}" alt="Photo du salon">
+      <button type="button" class="retirer-photo" data-nom="${nom}">retirer</button>
+    </div>`).join('');
+
+  document.querySelectorAll('.retirer-photo').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const res = await fetch(`/api/salons/${salonId}/photos/${btn.dataset.nom}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const salon = await res.json();
+        photos = salon.photos;
+        rendrePhotos();
+      } else {
+        alert('Erreur lors de la suppression de la photo.');
+      }
+    });
+  });
+}
+
+document.getElementById('photo-input').addEventListener('change', async (e) => {
+  const fichier = e.target.files[0];
+  e.target.value = '';
+  if (!fichier) return;
+
+  const formData = new FormData();
+  formData.append('fichier', fichier);
+  const res = await fetch(`/api/salons/${salonId}/photos`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+
+  if (res.ok) {
+    const salon = await res.json();
+    photos = salon.photos;
+    rendrePhotos();
+  } else {
+    const detail = (await res.json().catch(() => null))?.detail;
+    alert(detail || "Erreur lors de l'envoi de la photo.");
+  }
+});
+
 async function charger() {
   if (!salonId) {
     afficherMessage("Aucun salon sélectionné.");
@@ -189,6 +251,13 @@ async function charger() {
   document.getElementById('nom').value = salon.nom;
   document.getElementById('adresse').value = salon.adresse || '';
   document.getElementById('numero-twilio').textContent = salon.numero_twilio || 'Non attribué pour le moment';
+
+  const lienPublic = document.getElementById('lien-public');
+  lienPublic.href = `/salon/${salon.slug}`;
+  lienPublic.textContent = `${location.origin}/salon/${salon.slug}`;
+
+  photos = salon.photos;
+  rendrePhotos();
 
   const statut = document.getElementById('statut-agenda');
   const lien = document.getElementById('lien-connexion-agenda');

@@ -221,3 +221,5 @@ __marimo__/
 google-credentials.json
 *.db
 .DS_Store
+/uploads/
+.serena/

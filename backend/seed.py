@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from backend.database import Base, SessionLocal, engine
 from backend.models import Compte, Salon
 from backend.security import hash_password
+from backend.slugs import generer_slug
 
 load_dotenv(override=True)
 
@@ -66,6 +67,7 @@ def _seed_salon_demo(db):
     salon_demo = Salon(
         compte_id=compte_demo.id,
         nom="Belle Étoile",
+        slug=generer_slug("Belle Étoile", db),
         adresse="15e arrondissement, Paris",
         google_calendar_id="joseph.quesne@ensae.fr",
         est_demo=True,

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salon</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .vitrine { max-width: 720px; margin: 0 auto; padding: 2rem 0; }
+  .en-tete h1 { margin-bottom: 0.3rem; }
+  .en-tete .telephone { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; margin-top: 0.4rem; }
+
+  .galerie { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.6rem; }
+  .galerie img { width: 100%; height: 140px; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--border); }
+
+  .horaires-liste { list-style: none; margin: 0; padding: 0; }
+  .horaires-liste li {
+    display: flex; justify-content: space-between; padding: 0.45rem 0;
+    border-bottom: 1px solid var(--border); font-size: 0.92rem; text-transform: capitalize;
+  }
+  .horaires-liste li:last-child { border-bottom: none; }
+  .horaires-liste li.ferme { color: var(--muted); }
+
+  .prestations-cat h3 { margin-top: 1.25rem; }
+  .prestations-cat table { font-size: 0.92rem; }
+  .prestations-cat td:last-child { text-align: right; font-weight: 600; }
+
+  /* chatbot intégré, même rendu que chat.html mais comme section de la page */
+  .chat-section { display: flex; flex-direction: column; height: 520px; padding: 0; overflow: hidden; }
+  .messages { flex: 1; overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .bulle { max-width: 75%; padding: 0.6rem 0.9rem; border-radius: var(--radius); font-size: 0.92rem; line-height: 1.4; animation: rise 0.2s ease; white-space: pre-wrap; }
+  .bulle.client { align-self: flex-end; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; }
+  .bulle.bot { align-self: flex-start; background: var(--primary-light); border: 1px solid var(--border); color: #1f2330; }
+  .typing { align-self: flex-start; font-size: 0.82rem; color: var(--muted); padding: 0 1.25rem; display: none; }
+  .typing.visible { display: block; }
+  .saisie { display: flex; gap: 0.6rem; padding: 1rem 1.25rem; border-top: 1px solid var(--border); }
+  .saisie input { flex: 1; }
+</style>
+</head>
+<body>
+  <div class="vitrine">
+    <p id="message"></p>
+
+    <div id="contenu" style="display:none">
+      <div class="section-card en-tete">
+        <h1 id="nom-salon"></h1>
+        <p class="subtitle" id="adresse-salon" style="margin:0"></p>
+        <p class="telephone" id="bloc-telephone" style="display:none">
+          📞 <a id="lien-telephone" href="#"></a>
+        </p>
+      </div>
+
+      <div class="section-card" id="bloc-galerie" style="display:none">
+        <h3 style="margin-top:0">Photos</h3>
+        <div class="galerie" id="galerie"></div>
+      </div>
+
+      <div class="section-card">
+        <h3 style="margin-top:0">Horaires d'ouverture</h3>
+        <ul class="horaires-liste" id="horaires"></ul>
+      </div>
+
+      <div class="section-card" id="bloc-prestations">
+        <h3 style="margin-top:0">Prestations</h3>
+        <div id="prestations"></div>
+      </div>
+
+      <div class="section-card chat-section">
+        <div class="messages" id="messages"></div>
+        <div class="typing" id="typing">Claire est en train d'écrire…</div>
+        <div class="saisie">
+          <input type="text" id="champ-message" placeholder="Écrivez votre message pour prendre rendez-vous…" autocomplete="off">
+          <button class="primary" id="bouton-envoyer">Envoyer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+const slug = location.pathname.split('/').filter(Boolean).pop();
+
+function afficherMessage(texte) {
+  document.getElementById('message').textContent = texte;
+  document.getElementById('contenu').style.display = 'none';
+}
+
+function rendreHoraires(horaires) {
+  document.getElementById('horaires').innerHTML = JOURS.map(jour => {
+    const plage = horaires[jour];
+    return plage
+      ? `<li><span>${jour}</span><span>${plage.ouverture} – ${plage.fermeture}</span></li>`
+      : `<li class="ferme"><span>${jour}</span><span>Fermé</span></li>`;
+  }).join('');
+}
+
+function rendrePrestations(prestations) {
+  const bloc = document.getElementById('bloc-prestations');
+  const categories = Object.entries(prestations).filter(([, items]) => Object.keys(items).length);
+  if (!categories.length) { bloc.style.display = 'none'; return; }
+  document.getElementById('prestations').innerHTML = categories.map(([cat, items]) => `
+    <div class="prestations-cat">
+      <h3>${cat}</h3>
+      <table>${Object.entries(items).map(([nom, prix]) => `
+        <tr><td>${nom.replaceAll('_', ' ')}</td><td>${prix} €</td></tr>
+      `).join('')}</table>
+    </div>`).join('');
+}
+
+function rendreGalerie(salonId, photos) {
+  if (!photos.length) return;
+  document.getElementById('bloc-galerie').style.display = 'block';
+  document.getElementById('galerie').innerHTML = photos.map(nom =>
+    `<img src="/uploads/salons/${salonId}/${nom}" alt="Photo du salon" loading="lazy">`
+  ).join('');
+}
+
+function demarrerChat(salonId) {
+  const messagesEl = document.getElementById('messages');
+  const typingEl = document.getElementById('typing');
+  const champEl = document.getElementById('champ-message');
+
+  function ajouterBulle(texte, role) {
+    const bulle = document.createElement('div');
+    bulle.className = `bulle ${role === 'client' ? 'client' : 'bot'}`;
+    bulle.textContent = texte;
+    messagesEl.appendChild(bulle);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  const protocole = location.protocol === 'https:' ? 'wss' : 'ws';
+  const socket = new WebSocket(`${protocole}://${location.host}/chat/ws?salon_id=${salonId}`);
+
+  socket.addEventListener('open', () => { typingEl.classList.add('visible'); });
+  socket.addEventListener('message', (event) => {
+    const data = JSON.parse(event.data);
+    typingEl.classList.remove('visible');
+    if (data.role === 'assistant' || data.role === 'error') ajouterBulle(data.content, 'bot');
+  });
+  socket.addEventListener('close', () => { typingEl.classList.remove('visible'); });
+
+  function envoyer() {
+    const texte = champEl.value.trim();
+    if (!texte || socket.readyState !== WebSocket.OPEN) return;
+    ajouterBulle(texte, 'client');
+    socket.send(JSON.stringify({ message: texte }));
+    champEl.value = '';
+    typingEl.classList.add('visible');
+  }
+
+  document.getElementById('bouton-envoyer').addEventListener('click', envoyer);
+  champEl.addEventListener('keydown', (event) => { if (event.key === 'Enter') envoyer(); });
+}
+
+async function charger() {
+  if (!slug) {
+    afficherMessage("Salon introuvable.");
+    return;
+  }
+
+  const res = await fetch(`/api/public/salons/${slug}`);
+  if (!res.ok) {
+    afficherMessage("Ce salon n'existe pas.");
+    return;
+  }
+
+  const salon = await res.json();
+  document.getElementById('contenu').style.display = 'block';
+  document.title = salon.nom;
+  document.getElementById('nom-salon').textContent = salon.nom;
+  document.getElementById('adresse-salon').textContent = salon.adresse || '';
+
+  if (salon.numero_twilio) {
+    document.getElementById('bloc-telephone').style.display = 'block';
+    const lien = document.getElementById('lien-telephone');
+    lien.href = `tel:${salon.numero_twilio}`;
+    lien.textContent = salon.numero_twilio;
+  }
+
+  rendreGalerie(salon.id, salon.photos);
+  rendreHoraires(salon.horaires);
+  rendrePrestations(salon.prestations);
+  demarrerChat(salon.id);
+}
+
+charger();
+</script>
+</body>
+</html>

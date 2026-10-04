@@ -1,10 +1,14 @@
+import io
 import json
 import mimetypes
+import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image
 from sqlalchemy.orm import Session
 
 from backend.auth import (
@@ -23,6 +27,7 @@ from backend.models import Compte, RefreshToken, Salon
 from backend.oauth import router as oauth_router
 from backend.schemas import CompteAdminOut, LoginRequest, SalonCreate, SalonOut, SalonUpdate, SignupRequest
 from backend.security import hash_password, verifier_password
+from backend.slugs import generer_slug
 from salon_bot import ConversationTexte
 
 # le mime.types du système peut ne pas déclarer .css/.js (varie selon l'OS/le
@@ -32,6 +37,11 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/javascript", ".js")
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+PHOTOS_MAX = 5
+PHOTO_TAILLE_MAX = 5 * 1024 * 1024  # 5 Mo
+PHOTO_FORMATS = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}  # format Pillow -> extension
 
 app = FastAPI(title="Réceptionniste IA — API salons")
 
@@ -116,6 +126,7 @@ def _salon_to_dict(salon: Salon) -> dict:
     return {
         "id": salon.id,
         "nom": salon.nom,
+        "slug": salon.slug,
         "adresse": salon.adresse,
         "numero_twilio": salon.numero_twilio,
         "est_demo": salon.est_demo,
@@ -123,6 +134,7 @@ def _salon_to_dict(salon: Salon) -> dict:
         "horaires": json.loads(salon.horaires),
         "fermetures_exceptionnelles": json.loads(salon.fermetures_exceptionnelles),
         "prestations": json.loads(salon.prestations),
+        "photos": json.loads(salon.photos),
     }
 
 
@@ -145,6 +157,7 @@ def creer_salon(payload: SalonCreate, compte: Compte = Depends(get_current_compt
     salon = Salon(
         compte_id=compte.id,
         nom=payload.nom,
+        slug=generer_slug(payload.nom, db),
         adresse=payload.adresse,
         google_calendar_id="",  # pas encore de champ dédié dans le dashboard, voir étape 4
         horaires=payload.horaires.model_dump_json(),
@@ -175,6 +188,73 @@ def modifier_salon(
     salon.fermetures_exceptionnelles = json.dumps([d.isoformat() for d in payload.fermetures_exceptionnelles])
     salon.prestations = payload.prestations.model_dump_json()
     db.commit()
+    return _salon_to_dict(salon)
+
+
+@app.post("/api/salons/{salon_id}/photos", response_model=SalonOut)
+async def ajouter_photo(
+    salon_id: int,
+    fichier: UploadFile,
+    compte: Compte = Depends(get_current_compte),
+    db: Session = Depends(get_db),
+):
+    salon = _get_owned_salon(salon_id, compte, db)
+    photos = json.loads(salon.photos)
+    if len(photos) >= PHOTOS_MAX:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Maximum {PHOTOS_MAX} photos par salon")
+
+    contenu = await fichier.read()
+    if len(contenu) > PHOTO_TAILLE_MAX:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Photo trop lourde (5 Mo maximum)")
+
+    try:
+        image = Image.open(io.BytesIO(contenu))
+        format_image = image.format  # lu avant verify() : l'image n'est plus utilisable après
+        image.verify()
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Fichier image invalide")
+
+    extension = PHOTO_FORMATS.get(format_image)
+    if not extension:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Formats acceptés : JPEG, PNG, WEBP")
+
+    dossier = UPLOADS_DIR / "salons" / str(salon_id)
+    dossier.mkdir(parents=True, exist_ok=True)
+    # nom unique à chaque upload : évite qu'un remplacement de photo serve une
+    # version mise en cache par le navigateur du client sous le même nom
+    nom_fichier = f"{uuid.uuid4().hex}{extension}"
+    (dossier / nom_fichier).write_bytes(contenu)
+
+    photos.append(nom_fichier)
+    salon.photos = json.dumps(photos)
+    db.commit()
+    return _salon_to_dict(salon)
+
+
+@app.delete("/api/salons/{salon_id}/photos/{nom_fichier}", response_model=SalonOut)
+def retirer_photo(
+    salon_id: int,
+    nom_fichier: str,
+    compte: Compte = Depends(get_current_compte),
+    db: Session = Depends(get_db),
+):
+    salon = _get_owned_salon(salon_id, compte, db)
+    photos = json.loads(salon.photos)
+    if nom_fichier not in photos:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Photo introuvable")
+    photos.remove(nom_fichier)
+    salon.photos = json.dumps(photos)
+    db.commit()
+    (UPLOADS_DIR / "salons" / str(salon_id) / nom_fichier).unlink(missing_ok=True)
+    return _salon_to_dict(salon)
+
+
+@app.get("/api/public/salons/{slug}")
+def lire_salon_public(slug: str, db: Session = Depends(get_db)):
+    # page vitrine : lecture directe en base à chaque requête, aucune copie/cache
+    salon = db.query(Salon).filter_by(slug=slug).first()
+    if not salon:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Salon introuvable")
     return _salon_to_dict(salon)
 
 
@@ -256,6 +336,14 @@ async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get
         pass
 
 
+@app.get("/salon/{slug}")
+def page_salon_public(slug: str):
+    # même page statique pour tous les salons : le slug est lu et résolu côté
+    # client via /api/public/salons/{slug} (pas de template serveur)
+    return FileResponse(FRONTEND_DIR / "site" / "salon-public.html")
+
+
 # montés en dernier : les routes explicites ci-dessus restent prioritaires sur ces catch-all
 app.mount("/dashboard-admin", StaticFiles(directory=FRONTEND_DIR / "admin", html=True), name="dashboard_admin")
 app.mount("/site", StaticFiles(directory=FRONTEND_DIR / "site", html=True), name="site")
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")

@@ -163,6 +163,14 @@ tbody tr:last-child { border-bottom: none; }
 }
 #fermetures button { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
 
+.galerie-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 0.6rem; }
+.photo-miniature { position: relative; }
+.photo-miniature img { width: 100%; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); display: block; }
+.photo-miniature .retirer-photo {
+  position: absolute; top: 0.3rem; right: 0.3rem; padding: 0.15rem 0.5rem; font-size: 0.72rem;
+  background: rgba(255, 255, 255, 0.92);
+}
+
 @keyframes rise {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }

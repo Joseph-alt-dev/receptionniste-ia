@@ -24,6 +24,7 @@ class Salon(Base):
     id = Column(Integer, primary_key=True)
     compte_id = Column(Integer, ForeignKey("comptes.id"), nullable=False, index=True)
     nom = Column(String(255), nullable=False)
+    slug = Column(String(255), unique=True, nullable=False, index=True)  # identifiant pour l'URL publique /salon/<slug>
     adresse = Column(String(255))
     numero_twilio = Column(String(32), unique=True)  # nullable tant que pas de ligne Twilio
     google_calendar_id = Column(String(255))  # "primary" une fois connecté via OAuth (ou fixe pour le salon de démo)
@@ -33,6 +34,7 @@ class Salon(Base):
     horaires = Column(Text, nullable=False)  # JSON : {"lundi": null, "mardi": {"ouverture": "09:00", "fermeture": "19:00"}, ...}
     fermetures_exceptionnelles = Column(Text, nullable=False, default="[]")  # JSON : ["2026-12-25", ...]
     prestations = Column(Text, nullable=False)  # JSON : {"femme": {...}, "homme": {...}, "enfant": {...}}
+    photos = Column(Text, nullable=False, default="[]")  # JSON : ["<uuid>.jpg", ...] — fichiers dans uploads/salons/<id>/
     modifie_le = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     compte = relationship("Compte", back_populates="salons")
