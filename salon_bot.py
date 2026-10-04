@@ -66,8 +66,15 @@ def construire_system_prompt(salon: Salon) -> str:
     categories = ", ".join(json.loads(salon.prestations).keys()) or "aucune catégorie renseignée"
     adresse = f", situé {salon.adresse}" if salon.adresse else ""
 
+    maintenant = dt.datetime.now(PARIS_TZ)
+    aujourdhui = f"{JOURS[maintenant.weekday()]} {maintenant.date().isoformat()}, il est {maintenant.strftime('%H:%M')}"
+
     return (
         f"Tu es Claire, la réceptionniste vocale du salon de coiffure '{salon.nom}'{adresse}. "
+        f"Nous sommes actuellement le {aujourdhui} (heure de Paris) : "
+        "base-toi toujours sur cette date pour interpréter les expressions "
+        "relatives du client (\"demain\", \"lundi prochain\", \"dans une semaine\"...) "
+        "et pour calculer la date exacte AAAA-MM-JJ à transmettre aux fonctions. "
         f"Horaires d'ouverture : {description_horaires}. "
         f"Catégories de prestations : {categories}. "
         "Quand un client pose une question sur les tarifs ou une prestation, "
@@ -243,18 +250,22 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             nom_client: Le nom du client qui prend rendez-vous.
             prestation: La prestation demandée, si elle est connue (ex : "coupe femme").
         """
+        logger.info(f"reserver_creneau appelé avec date={date!r} heure={heure!r} nom_client={nom_client!r} prestation={prestation!r}")
         if service is None:
             await params.result_callback({"succes": False, "message": MESSAGE_CALENDRIER_INDISPONIBLE})
             return
         try:
             debut = dt.datetime.combine(dt.date.fromisoformat(date), dt.time.fromisoformat(heure), tzinfo=PARIS_TZ)
             titre = f"{nom_client} — {prestation}" if prestation else nom_client
-
-            evenement = service.events().insert(calendarId=calendar_id, body={
+            corps = {
                 "summary": titre,
                 "start": {"dateTime": debut.isoformat(), "timeZone": "Europe/Paris"},
                 "end": {"dateTime": (debut + dt.timedelta(hours=1)).isoformat(), "timeZone": "Europe/Paris"},
-            }).execute()
+            }
+            logger.info(f"Appel Google Calendar events.insert calendarId={calendar_id!r} body={corps}")
+
+            evenement = service.events().insert(calendarId=calendar_id, body=corps).execute()
+            logger.info(f"Réponse Google Calendar : id={evenement['id']} start={evenement['start']}")
 
             await params.result_callback({
                 "succes": True,
@@ -348,7 +359,14 @@ async def appeler_outil(fonction, arguments: dict) -> dict:
         context=None,
         result_callback=callback,
     )
-    await fonction(params, **arguments)
+    try:
+        await fonction(params, **arguments)
+    except Exception as e:
+        # un outil qui plante sans ça tue silencieusement toute la conversation
+        # (la boucle appelante ne voit jamais l'erreur) : on la logue et on la
+        # renvoie au LLM comme un échec d'outil normal, pour qu'il informe le client.
+        logger.error(f"Échec de l'appel à l'outil {fonction.__name__} avec {arguments} : {e!r}")
+        resultat = {"succes": False, "message": "Une erreur technique empêche cette action pour le moment."}
     return resultat
 
 
@@ -385,10 +403,12 @@ class ConversationTexte:
             self.messages.append(message.model_dump(exclude_none=True))
 
             if not message.tool_calls:
+                logger.debug("Aucun appel d'outil ce tour : le LLM a répondu directement en texte.")
                 return message.content or ""
 
             for appel in message.tool_calls:
                 arguments = json.loads(appel.function.arguments or "{}")
+                logger.info(f"Tool call demandé par le LLM : {appel.function.name}({arguments})")
                 resultat = await appeler_outil(self._outils_par_nom[appel.function.name], arguments)
                 if on_appel_outil:
                     on_appel_outil(appel.function.name, arguments, resultat)
