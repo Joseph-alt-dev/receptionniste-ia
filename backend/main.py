@@ -471,7 +471,7 @@ async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get
     db.expunge(salon)
 
     # une conversation par connexion : aucune mémoire partagée entre deux clients
-    conversation = ConversationTexte(salon)
+    conversation = ConversationTexte(salon, canal="chat")
     try:
         await websocket.send_json({"role": "info", "nom_salon": salon.nom})
         reponse = await conversation.tour("[Le client vient d'ouvrir le chat. Présente-toi brièvement.]")

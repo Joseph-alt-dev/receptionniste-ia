@@ -28,8 +28,58 @@ from backend.models import Salon
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]  # index = date.weekday()
+MOIS = [
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+]  # index = month - 1
 GOOGLE_CREDENTIALS_FILE = Path(__file__).parent / "google-credentials.json"  # compte de service du salon de démo
 MODELE_LLM = "openai/gpt-oss-20b"
+
+
+def _decrire_maintenant() -> str:
+    """Date/heure actuelle en Europe/Paris, en toutes lettres, pour le prompt système.
+    Recalculée à chaque appel : ne jamais mettre en cache dans une variable longue durée.
+    """
+    maintenant = dt.datetime.now(PARIS_TZ)
+    return (
+        f"Nous sommes le {JOURS[maintenant.weekday()]} {maintenant.day} {MOIS[maintenant.month - 1]} "
+        f"{maintenant.year}, il est {maintenant.strftime('%Hh%M')} (fuseau Europe/Paris)."
+    )
+
+
+def _prochaine_occurrence(jour: int, mois: int, annee: int | None, aujourdhui: dt.date) -> tuple[dt.date, bool]:
+    """Résout jour/mois/année (donnés par le client) en date calendaire complète.
+
+    Si l'année est omise, prend la prochaine occurrence à venir (cette année si
+    elle n'est pas encore passée, sinon l'année prochaine) : le client qui dit
+    "le 1er octobre" sans préciser l'année veut la prochaine, jamais une date passée.
+    Lève ValueError si jour/mois/année ne forment pas une date valide.
+
+    Renvoie (date_résolue, année_déduite).
+    """
+    if annee is not None:
+        return dt.date(annee, mois, jour), False
+    candidate = dt.date(aujourdhui.year, mois, jour)
+    if candidate < aujourdhui:
+        candidate = dt.date(aujourdhui.year + 1, mois, jour)
+    return candidate, True
+
+
+def _prochain_jour_semaine(jour_semaine: str, aujourdhui: dt.date) -> dt.date:
+    """Prochaine occurrence à venir d'un jour de semaine ("lundi", "samedi"...),
+    aujourd'hui inclus s'il correspond. Lève ValueError si jour_semaine est inconnu.
+    """
+    delta = (JOURS.index(jour_semaine) - aujourdhui.weekday()) % 7
+    return aujourdhui + dt.timedelta(days=delta)
+
+
+def _raison_fermeture(date: dt.date, horaires: dict, fermetures: set[str]) -> str | None:
+    """Renvoie pourquoi le salon est fermé ce jour-là, ou None s'il est ouvert."""
+    if date.isoformat() in fermetures:
+        return "fermeture exceptionnelle ce jour-là"
+    if not horaires.get(JOURS[date.weekday()]):
+        return f"le salon est fermé le {JOURS[date.weekday()]}"
+    return None
 
 
 def charger_salon(salon_id: int) -> Salon | None:
@@ -57,7 +107,15 @@ def charger_salon_demo() -> Salon:
         db.close()
 
 
-def construire_system_prompt(salon: Salon) -> str:
+def construire_system_prompt(salon: Salon, canal: str = "telephone") -> str:
+    """Construit le prompt système. À rappeler à chaque message (pas seulement
+    à la création de la conversation) pour que la date/heure injectée reste
+    fraîche : voir ConversationTexte.tour et le rafraîchissement par tour côté
+    bot.py (pipecat).
+
+    canal: "telephone" (bot vocal) ou "chat" (chat web) — change le rôle annoncé
+    et la présentation, jamais "vocale" côté chat.
+    """
     horaires = json.loads(salon.horaires)
     jours_ouverts = [jour for jour in JOURS if horaires.get(jour)]
     description_horaires = ", ".join(
@@ -68,15 +126,31 @@ def construire_system_prompt(salon: Salon) -> str:
     adresse_complete = composer_adresse(salon.numero_et_rue, salon.complement, salon.code_postal, salon.ville, salon.pays)
     adresse = f", situé {adresse_complete}" if adresse_complete else ""
 
-    maintenant = dt.datetime.now(PARIS_TZ)
-    aujourdhui = f"{JOURS[maintenant.weekday()]} {maintenant.date().isoformat()}, il est {maintenant.strftime('%H:%M')}"
+    role = "la réceptionniste" if canal == "telephone" else "l'assistante"
+    presentation = f"Bonjour, je suis Rachel, {role} du salon {salon.nom}."
+    style = (
+        "Reste brève et naturelle, comme dans une vraie conversation téléphonique, "
+        "sans emojis ni formatage puisque tes réponses seront lues à voix haute. "
+        if canal == "telephone" else
+        "Reste brève et naturelle, comme dans une vraie conversation écrite, sans emojis. "
+    )
 
     return (
-        f"Tu es Claire, la réceptionniste vocale du salon de coiffure '{salon.nom}'{adresse}. "
-        f"Nous sommes actuellement le {aujourdhui} (heure de Paris) : "
-        "base-toi toujours sur cette date pour interpréter les expressions "
-        "relatives du client (\"demain\", \"lundi prochain\", \"dans une semaine\"...) "
-        "et pour calculer la date exacte AAAA-MM-JJ à transmettre aux fonctions. "
+        f"Tu es Rachel, {role} du salon de coiffure '{salon.nom}'{adresse}. "
+        f"{_decrire_maintenant()} "
+        "Ne calcule JAMAIS toi-même le jour de la semaine d'une date, si une date "
+        "est déjà passée, ou si le salon est ouvert ce jour-là : utilise "
+        "systématiquement l'outil resoudre_date pour ça avant de proposer ou "
+        "confirmer quoi que ce soit, y compris pour des expressions relatives "
+        "(\"demain\", \"samedi prochain\", \"lundi\"...). Si le client donne une date "
+        "calendaire sans préciser l'année, ne devine pas l'année toi-même : "
+        "laisse-la vide dans l'appel à resoudre_date, l'outil choisira "
+        "automatiquement la prochaine occurrence à venir. Si resoudre_date indique "
+        "que la date est passée, dis-le poliment et propose la prochaine date "
+        "possible. Si resoudre_date répond a_avance_dune_annee=true, informe le "
+        "client que cette date est déjà passée cette année et précise l'année de "
+        "la date proposée. Ne propose et ne confirme jamais un rendez-vous à une "
+        "date passée ou un jour où le salon est fermé. "
         f"Horaires d'ouverture : {description_horaires}. "
         f"Catégories de prestations : {categories}. "
         "Quand un client pose une question sur les tarifs ou une prestation, "
@@ -84,17 +158,21 @@ def construire_system_prompt(salon: Salon) -> str:
         "utilise consulter_tarifs pour obtenir les tarifs exacts avant de répondre. "
         "Ne jamais inventer un prix. "
         "Tu aides aussi les clients à prendre rendez-vous en utilisant les fonctions "
-        "disponibles : vérifie toujours la disponibilité avec verifier_disponibilite "
-        "avant de proposer un créneau, puis confirme la réservation avec "
-        "reserver_creneau une fois que le client a choisi. "
+        "disponibles : résous toujours la date avec resoudre_date, vérifie la "
+        "disponibilité avec verifier_disponibilite avant de proposer un créneau, "
+        "puis confirme la réservation avec reserver_creneau une fois que le client "
+        "a choisi un créneau ET donné son prénom (obligatoire : demande-le s'il ne "
+        "l'a pas donné). "
         "Si le client veut annuler un rendez-vous existant, utilise annuler_rendez_vous. "
-        "Si l'une de ces fonctions de calendrier répond qu'elle n'est pas disponible, "
-        "informe poliment le client qu'une personne du salon le rappellera pour "
-        "confirmer, sans jamais mentionner de problème technique. "
+        "Si l'une de ces fonctions de calendrier répond qu'elle n'est pas disponible "
+        "pour une raison technique, informe poliment le client qu'une personne du "
+        "salon le rappellera pour confirmer, sans jamais mentionner de problème "
+        "technique. Si elle refuse pour une date/heure invalide, passée, un jour "
+        "fermé ou un créneau déjà occupé, propose une alternative au client sans "
+        "jamais insister sur ce créneau. "
         "Si une demande sort de ton cadre (réclamation, urgence, demande complexe), "
         "utilise escalader_vers_humain. "
-        "Reste brève et naturelle, comme dans une vraie conversation téléphonique, "
-        "sans emojis ni formatage puisque tes réponses seront lues à voix haute. "
+        f"{style}"
         "N'utilise escalader_vers_humain qu'en tout dernier recours, après avoir "
         "essayé toutes les autres solutions. Par exemple : si un créneau n'est pas "
         "disponible, propose une autre date ou heure avant d'escalader. Si une "
@@ -103,7 +181,8 @@ def construire_system_prompt(salon: Salon) -> str:
         "que pour une vraie réclamation, une urgence, une demande explicite du "
         "client de parler à un humain, ou une situation clairement hors de ton "
         "périmètre (par exemple une question médicale ou une allergie nécessitant "
-        "un avis professionnel)."
+        "un avis professionnel). Au début de la conversation, présente-toi "
+        f"brièvement avec une phrase proche de : « {presentation} »"
     )
 
 
@@ -172,10 +251,87 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             "tarifs": prestations[categorie],
         })
 
+    async def resoudre_date(
+        params: FunctionCallParams,
+        decalage_jours: int | None = None,
+        jour_semaine: str | None = None,
+        jour: int | None = None,
+        mois: int | None = None,
+        annee: int | None = None,
+    ):
+        """Résout une expression de date du client en date calendaire complète,
+        et indique son jour de semaine, si elle est déjà passée, et si le salon
+        est ouvert ce jour-là. À utiliser SYSTÉMATIQUEMENT avant de proposer ou
+        confirmer une date : ne calcule jamais toi-même un jour de semaine ou
+        une date relative, cet outil le fait à partir de la date du jour serveur.
+
+        Renseigne EXACTEMENT un des trois moyens suivants de désigner la date :
+        - decalage_jours pour une expression relative à aujourd'hui.
+        - jour_semaine pour un jour de la semaine (renvoie sa prochaine occurrence).
+        - jour + mois (+ annee si précisée) pour une date calendaire.
+
+        Args:
+            decalage_jours: Nombre de jours depuis aujourd'hui, pour une
+                expression relative ("demain"=1, "après-demain"=2,
+                "aujourd'hui"=0). Laisse vide si non pertinent.
+            jour_semaine: Le jour de semaine mentionné ("lundi", "samedi"...),
+                en minuscules et sans accent particulier. Renvoie toujours la
+                prochaine occurrence à venir (aujourd'hui compte s'il
+                correspond). Laisse vide si non pertinent.
+            jour: Le jour du mois, si le client a donné une date calendaire
+                (ex : "le 1er octobre" -> jour=1). Laisse vide si non pertinent.
+            mois: Le mois correspondant (1-12), si jour est renseigné.
+            annee: L'année, UNIQUEMENT si le client l'a explicitement précisée.
+        """
+        aujourdhui = dt.datetime.now(PARIS_TZ).date()
+        annee_deduite = False
+
+        if decalage_jours is not None:
+            date_resolue = aujourdhui + dt.timedelta(days=decalage_jours)
+        elif jour_semaine is not None:
+            jour_semaine = jour_semaine.lower().strip()
+            if jour_semaine not in JOURS:
+                await params.result_callback({
+                    "valide": False,
+                    "message": f"Jour de semaine inconnu : {jour_semaine}.",
+                })
+                return
+            date_resolue = _prochain_jour_semaine(jour_semaine, aujourdhui)
+        elif jour is not None and mois is not None:
+            try:
+                date_resolue, annee_deduite = _prochaine_occurrence(jour, mois, annee, aujourdhui)
+            except ValueError:
+                await params.result_callback({"valide": False, "message": "Cette date n'existe pas."})
+                return
+        else:
+            await params.result_callback({
+                "valide": False,
+                "message": "Précise decalage_jours, jour_semaine, ou jour+mois.",
+            })
+            return
+
+        # annee_deduite pousse toujours vers une date future : ce flag indique que
+        # la date "naturelle" (même année) était déjà passée, pour que le modèle
+        # le signale au client au lieu de glisser silencieusement à l'an prochain.
+        a_avance_dune_annee = (
+            annee_deduite and dt.date(aujourdhui.year, mois, jour) < aujourdhui
+        )
+
+        await params.result_callback({
+            "valide": True,
+            "date": date_resolue.isoformat(),
+            "jour_semaine": JOURS[date_resolue.weekday()],
+            "annee_deduite": annee_deduite,
+            "a_avance_dune_annee": a_avance_dune_annee,
+            "est_passee": date_resolue < aujourdhui,
+            "ouvert": _raison_fermeture(date_resolue, horaires, fermetures) is None,
+            "raison_fermeture": _raison_fermeture(date_resolue, horaires, fermetures),
+        })
+
     def _creneaux_du_jour(date: str) -> list[dt.datetime] | None:
         """Créneaux d'1h ouverts ce jour-là, ou None si le salon est fermé."""
         jour = dt.date.fromisoformat(date)
-        if date in fermetures:
+        if _raison_fermeture(jour, horaires, fermetures):
             return None
         plage = horaires.get(JOURS[jour.weekday()])
         if not plage:
@@ -200,11 +356,20 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             await params.result_callback({"disponible": False, "message": MESSAGE_CALENDRIER_INDISPONIBLE})
             return
         try:
+            jour_obj = dt.date.fromisoformat(date)
+        except ValueError:
+            await params.result_callback({"disponible": False, "message": "Date invalide, utilise le format AAAA-MM-JJ."})
+            return
+        if jour_obj < dt.datetime.now(PARIS_TZ).date():
+            await params.result_callback({"disponible": False, "message": f"Le {date} est déjà passé."})
+            return
+        try:
             creneaux = _creneaux_du_jour(date)
             if creneaux is None:
+                raison = _raison_fermeture(jour_obj, horaires, fermetures) or "aucun créneau ce jour-là"
                 await params.result_callback({
                     "disponible": False,
-                    "message": f"Le salon est fermé le {date}.",
+                    "message": f"Le salon est fermé le {date} ({raison}).",
                 })
                 return
 
@@ -253,16 +418,66 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             prestation: La prestation demandée, si elle est connue (ex : "coupe femme").
         """
         logger.info(f"reserver_creneau appelé avec date={date!r} heure={heure!r} nom_client={nom_client!r} prestation={prestation!r}")
+        nom_client = (nom_client or "").strip()
+        if not nom_client:
+            await params.result_callback({
+                "succes": False,
+                "message": "Le prénom du client est obligatoire pour réserver : demande-le avant de confirmer.",
+            })
+            return
         if service is None:
             await params.result_callback({"succes": False, "message": MESSAGE_CALENDRIER_INDISPONIBLE})
             return
         try:
-            debut = dt.datetime.combine(dt.date.fromisoformat(date), dt.time.fromisoformat(heure), tzinfo=PARIS_TZ)
-            titre = f"{nom_client} — {prestation}" if prestation else nom_client
+            jour_obj = dt.date.fromisoformat(date)
+            heure_obj = dt.time.fromisoformat(heure)
+        except ValueError:
+            await params.result_callback({"succes": False, "message": "Date ou heure invalide."})
+            return
+
+        debut = dt.datetime.combine(jour_obj, heure_obj, tzinfo=PARIS_TZ)
+        fin = debut + dt.timedelta(hours=1)
+
+        if debut < dt.datetime.now(PARIS_TZ):
+            await params.result_callback({
+                "succes": False,
+                "message": f"Le {date} à {heure} est déjà passé, propose une date future.",
+            })
+            return
+
+        raison = _raison_fermeture(jour_obj, horaires, fermetures)
+        if raison:
+            await params.result_callback({"succes": False, "message": f"Le salon est fermé le {date} ({raison})."})
+            return
+
+        plage = horaires[JOURS[jour_obj.weekday()]]
+        ouverture, fermeture = dt.time.fromisoformat(plage["ouverture"]), dt.time.fromisoformat(plage["fermeture"])
+        if heure_obj < ouverture or fin.time() > fermeture:
+            await params.result_callback({
+                "succes": False,
+                "message": f"Le salon est ouvert de {plage['ouverture']} à {plage['fermeture']} le {date}, choisis un autre horaire.",
+            })
+            return
+
+        try:
+            occupations = service.freebusy().query(body={
+                "timeMin": debut.isoformat(),
+                "timeMax": fin.isoformat(),
+                "timeZone": "Europe/Paris",
+                "items": [{"id": calendar_id}],
+            }).execute()["calendars"][calendar_id]["busy"]
+            if occupations:
+                await params.result_callback({
+                    "succes": False,
+                    "message": f"Le créneau de {heure} le {date} est déjà occupé, propose un autre horaire.",
+                })
+                return
+
+            titre = f"{prestation} - {nom_client}" if prestation else nom_client
             corps = {
                 "summary": titre,
                 "start": {"dateTime": debut.isoformat(), "timeZone": "Europe/Paris"},
-                "end": {"dateTime": (debut + dt.timedelta(hours=1)).isoformat(), "timeZone": "Europe/Paris"},
+                "end": {"dateTime": fin.isoformat(), "timeZone": "Europe/Paris"},
             }
             logger.info(f"Appel Google Calendar events.insert calendarId={calendar_id!r} body={corps}")
 
@@ -324,7 +539,7 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
                 "message": "Une erreur technique empêche l'annulation pour le moment.",
             })
 
-    return [verifier_disponibilite, reserver_creneau, annuler_rendez_vous, consulter_tarifs, escalader_vers_humain]
+    return [resoudre_date, verifier_disponibilite, reserver_creneau, annuler_rendez_vous, consulter_tarifs, escalader_vers_humain]
 
 
 async def escalader_vers_humain(params: FunctionCallParams, raison: str):
@@ -378,8 +593,9 @@ class ConversationTexte:
     pour une connexion de chat web ou une session du simulateur terminal.
     """
 
-    def __init__(self, salon: Salon):
+    def __init__(self, salon: Salon, canal: str = "telephone"):
         self.salon = salon
+        self.canal = canal
         service, calendar_id = construire_client_calendrier(salon)
         self.outils = construire_tools(salon, service, calendar_id)
         self._outils_par_nom = {f.__name__: f for f in self.outils}
@@ -388,12 +604,14 @@ class ConversationTexte:
             for f in self.outils
         ]
         self._client = AsyncOpenAI(api_key=os.environ["GROQ_API_KEY"], base_url="https://api.groq.com/openai/v1")
-        self.messages = [{"role": "system", "content": construire_system_prompt(salon)}]
+        self.messages = [{"role": "system", "content": construire_system_prompt(salon, canal)}]
 
     async def tour(self, message_utilisateur: str | None, on_appel_outil=None) -> str:
         """Envoie un message utilisateur (None pour relancer sans nouveau message),
         exécute les éventuels appels d'outils, renvoie la réponse finale du bot.
         """
+        # recalculée à chaque tour pour que la date/heure injectée reste fraîche
+        self.messages[0] = {"role": "system", "content": construire_system_prompt(self.salon, self.canal)}
         if message_utilisateur is not None:
             self.messages.append({"role": "user", "content": message_utilisateur})
 

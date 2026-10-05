@@ -4,7 +4,7 @@ from dotenv import load_dotenv #permet de lire le fichier .env qui contient les 
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import LLMRunFrame, LLMUpdateSettingsFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -58,7 +58,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments, salon:
         api_key=os.environ["GROQ_API_KEY"],
         base_url="https://api.groq.com/openai/v1",
         model="openai/gpt-oss-20b",
-        settings=OpenAILLMService.Settings(system_instruction=construire_system_prompt(salon)), #le bot parle à groq pas à OPEN AI
+        settings=OpenAILLMService.Settings(system_instruction=construire_system_prompt(salon, canal="telephone")), #le bot parle à groq pas à OPEN AI
     )
 
     context = LLMContext(tools=construire_tools(salon, service, calendar_id)) #les fonctions à tester avant quelconque conversation
@@ -90,6 +90,15 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments, salon:
         logger.info("Client connected")
         context.add_message({"role": "developer", "content": "Présente-toi brièvement au client."})
         await worker.queue_frames([LLMRunFrame()])
+
+    @user_aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped(aggregator, strategy, message):
+        # recalculé à chaque tour : la date/heure du prompt système ne doit
+        # jamais rester figée sur l'instant où l'appel a commencé
+        nouveau_prompt = construire_system_prompt(salon, canal="telephone")
+        await worker.queue_frames(
+            [LLMUpdateSettingsFrame(delta=OpenAILLMService.Settings(system_instruction=nouveau_prompt))]
+        )
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):

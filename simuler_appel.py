@@ -42,7 +42,7 @@ async def main():
 
     async def tour(message_utilisateur):
         reponse = await conversation.tour(message_utilisateur, on_appel_outil=tracer_appel_outil)
-        print(f"Claire: {reponse}\n")
+        print(f"Rachel: {reponse}\n")
 
     await tour("[Le client vient de décrocher. Présente-toi brièvement.]")
     while True:
