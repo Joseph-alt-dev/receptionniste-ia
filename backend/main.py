@@ -31,7 +31,7 @@ from backend.auth import (
     rotate_refresh_token,
 )
 from backend.config import ACCESS_TOKEN_EXPIRE_MINUTES, COOKIE_SECURE, CORS_ORIGINS, REFRESH_TOKEN_EXPIRE_DAYS
-from backend.geocodage import geocoder_adresse
+from backend.geocodage import geocoder_adresse, geocoder_ville_ou_code_postal
 from backend.models import Avis, Compte, RefreshToken, Salon
 from backend.oauth import router as oauth_router
 from backend.schemas import (
@@ -243,24 +243,40 @@ def _normaliser(texte: str) -> str:
     return sans_accents.lower().strip()
 
 
-def _score_pertinence(texte_normalise: str, salon: Salon) -> float:
+def _score_champ(texte_normalise: str, champ: str | None) -> float:
     """0..1 : correspondance exacte/partielle en priorité, sinon similarité
-    tolérante à 1-2 fautes de frappe (difflib) sur le nom, la ville, le code postal."""
-    meilleur = 0.0
-    for champ in (salon.nom, salon.ville, salon.code_postal):
-        if not champ:
-            continue
-        champ_normalise = _normaliser(champ)
-        if texte_normalise in champ_normalise:
-            return 1.0
-        ratio = difflib.SequenceMatcher(None, texte_normalise, champ_normalise).ratio()
-        for mot in champ_normalise.split():
-            ratio = max(ratio, difflib.SequenceMatcher(None, texte_normalise, mot).ratio())
-        meilleur = max(meilleur, ratio)
-    return meilleur
+    tolérante à 1-2 fautes de frappe (difflib)."""
+    if not champ:
+        return 0.0
+    champ_normalise = _normaliser(champ)
+    if texte_normalise in champ_normalise:
+        return 1.0
+    ratio = difflib.SequenceMatcher(None, texte_normalise, champ_normalise).ratio()
+    for mot in champ_normalise.split():
+        ratio = max(ratio, difflib.SequenceMatcher(None, texte_normalise, mot).ratio())
+    return ratio
+
+
+def _score_pertinence(texte_normalise: str, salon: Salon) -> tuple[float, float, float]:
+    """(score_nom, score_ville, score_code_postal) : tri par pertinence =
+    meilleure correspondance du nom d'abord, puis ville, puis code postal."""
+    return (
+        _score_champ(texte_normalise, salon.nom),
+        _score_champ(texte_normalise, salon.ville),
+        _score_champ(texte_normalise, salon.code_postal),
+    )
 
 
 SEUIL_PERTINENCE = 0.6  # ponytail: tolère ~1-2 fautes de frappe sur un nom de salon
+
+
+@app.get("/api/geocoder")
+def geocoder(q: str):
+    """Géocodage ponctuel d'une saisie libre "ville ou code postal" pour la
+    recherche "près de vous" côté client. Rien n'est stocké côté serveur :
+    la position est gardée par le navigateur (sessionStorage)."""
+    latitude, longitude = geocoder_ville_ou_code_postal(q)
+    return {"latitude": latitude, "longitude": longitude}
 
 
 @app.get("/api/salons/recherche", response_model=list[SalonRechercheResultat])
@@ -276,7 +292,7 @@ def rechercher_salons(
     texte_normalise = _normaliser(texte) if texte else None
     scores = {s.id: _score_pertinence(texte_normalise, s) for s in salons} if texte_normalise else {}
     if texte_normalise:
-        salons = [s for s in salons if scores[s.id] >= SEUIL_PERTINENCE]
+        salons = [s for s in salons if max(scores[s.id]) >= SEUIL_PERTINENCE]
 
     resultats = []
     for salon in salons:
@@ -293,12 +309,12 @@ def rechercher_salons(
             "nombre_avis": nombre_avis,
             "photo_principale": f"/uploads/salons/{salon.id}/{photos[0]}" if photos else None,
             "distance_km": distance_km,
-            "_pertinence": scores.get(salon.id, 0.0),
+            "_pertinence": scores.get(salon.id, (0.0, 0.0, 0.0)),
         })
 
     tri_effectif = tri or ("distance" if latitude is not None and longitude is not None else "pertinence" if texte_normalise else "note")
     if tri_effectif == "pertinence":
-        resultats.sort(key=lambda r: -r["_pertinence"])
+        resultats.sort(key=lambda r: tuple(-x for x in r["_pertinence"]))
     elif tri_effectif == "note":
         resultats.sort(key=lambda r: (r["note_moyenne"] is None, -(r["note_moyenne"] or 0)))
     elif tri_effectif == "distance":

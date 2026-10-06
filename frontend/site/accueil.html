@@ -8,17 +8,6 @@
 <style>
   body { padding: 0 0 4rem; }
 
-  .nav-accueil {
-    display: flex; align-items: center; justify-content: space-between;
-    max-width: 1080px; margin: 0 auto; padding: 1.5rem 1.25rem 0;
-  }
-  .nav-accueil a.connexion {
-    font-size: 0.88rem; font-weight: 600; color: var(--ink);
-    border: 1px solid var(--border); border-radius: 999px; padding: 0.5rem 1.1rem;
-    text-decoration: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  }
-  .nav-accueil a.connexion:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); text-decoration: none; }
-
   .hero { max-width: 760px; margin: 0 auto; padding: 3.5rem 1.25rem 2.5rem; text-align: center; }
   .hero h1 { font-size: 2.1rem; line-height: 1.25; margin: 0 0 0.75rem; }
   .hero p { color: var(--muted); font-size: 1.05rem; margin: 0 0 2rem; }
@@ -58,6 +47,11 @@
     font-size: 0.85rem; font-weight: 700; color: var(--primary); text-decoration: underline;
   }
   .bandeau-geoloc button:hover { background: none; box-shadow: none; transform: none; }
+  .bandeau-geoloc input {
+    border: none; background: transparent; padding: 0.3rem 0; font-size: 0.85rem; min-width: 0; flex: 1;
+  }
+  .bandeau-geoloc input:focus { outline: none; box-shadow: none; }
+  .bandeau-geoloc .erreur-ville { color: var(--danger); font-size: 0.78rem; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -78,6 +72,11 @@
     📍 Autoriser la localisation pour voir les salons près de chez vous
     <button type="button" id="bouton-geoloc">Autoriser</button>
   </div>
+  <form class="bandeau-geoloc" id="form-ville" style="display:none">
+    📍 <input type="text" id="champ-ville" placeholder="Ville ou code postal" autocomplete="off">
+    <span class="erreur-ville" id="erreur-ville" style="display:none">Introuvable</span>
+    <button class="primary" type="submit" style="border-radius:999px;padding:0.35rem 0.9rem;font-size:0.82rem">Valider</button>
+  </form>
 </div>
 
 <main>
@@ -91,7 +90,7 @@
 
   <section class="section-accueil" id="section-pres-de-vous">
     <div class="en-tete-section">
-      <h2>Près de chez vous</h2>
+      <h2 id="titre-pres-de-vous">Salons récents</h2>
       <span class="info-section" id="info-pres-de-vous"></span>
     </div>
     <div class="cartes-salons" id="cartes-pres-de-vous"><p class="etat-section">Chargement…</p></div>
@@ -149,36 +148,77 @@ function rendreCartes(conteneurId, salons, messageVide) {
   conteneur.innerHTML = salons.map(carteSalonHtml).join('');
 }
 
-async function chargerSalonsRecents() {
-  const info = document.getElementById('info-pres-de-vous');
-  info.textContent = 'Salons les plus récents';
+// La position choisie (géolocalisation ou ville/code postal saisie) ne vit
+// que pour l'onglet courant : jamais envoyée au serveur de façon permanente.
+const CLE_POSITION = 'position_utilisateur';
+
+function positionEnregistree() {
+  try { return JSON.parse(sessionStorage.getItem(CLE_POSITION)); } catch { return null; }
+}
+function enregistrerPosition(latitude, longitude) {
+  sessionStorage.setItem(CLE_POSITION, JSON.stringify({ latitude, longitude }));
+}
+
+async function afficherSalonsPres(latitude, longitude) {
+  document.getElementById('titre-pres-de-vous').textContent = 'Salons près de vous';
+  document.getElementById('info-pres-de-vous').textContent = 'Trié par distance';
+  const salons = await rechercher({ latitude, longitude, tri: 'distance' });
+  rendreCartes('cartes-pres-de-vous', salons.slice(0, 6), 'Aucun salon trouvé près de chez vous.');
+}
+
+async function afficherSalonsRecents() {
+  document.getElementById('titre-pres-de-vous').textContent = 'Salons récents';
+  document.getElementById('info-pres-de-vous').textContent = 'Salons les plus récents';
   rendreCartes('cartes-pres-de-vous', (await rechercher({ tri: 'recent' })).slice(0, 6), 'Aucun salon pour le moment.');
 }
 
+function afficherFormulaireVille() {
+  document.getElementById('bandeau-geoloc').style.display = 'none';
+  document.getElementById('form-ville').style.display = 'flex';
+}
+
 function demanderGeolocalisation() {
-  const banniere = document.getElementById('bandeau-geoloc');
   navigator.geolocation.getCurrentPosition(
     async (position) => {
-      banniere.style.display = 'none';
-      const info = document.getElementById('info-pres-de-vous');
-      info.textContent = 'Trié par distance';
-      const salons = await rechercher({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        tri: 'distance',
-      });
-      rendreCartes('cartes-pres-de-vous', salons.slice(0, 6), 'Aucun salon trouvé près de chez vous.');
+      document.getElementById('bandeau-geoloc').style.display = 'none';
+      enregistrerPosition(position.coords.latitude, position.coords.longitude);
+      await afficherSalonsPres(position.coords.latitude, position.coords.longitude);
     },
-    () => { banniere.style.display = 'none'; },
+    afficherFormulaireVille,
     { timeout: 6000 },
   );
 }
 
+document.getElementById('form-ville').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const champ = document.getElementById('champ-ville');
+  const erreur = document.getElementById('erreur-ville');
+  const texte = champ.value.trim();
+  if (!texte) return;
+  erreur.style.display = 'none';
+  const res = await fetch(`/api/geocoder?${new URLSearchParams({ q: texte })}`);
+  const { latitude, longitude } = res.ok ? await res.json() : { latitude: null, longitude: null };
+  if (latitude === null || longitude === null) {
+    erreur.style.display = 'inline';
+    return;
+  }
+  document.getElementById('form-ville').style.display = 'none';
+  enregistrerPosition(latitude, longitude);
+  await afficherSalonsPres(latitude, longitude);
+});
+
 async function chargerPresDeVous() {
-  await chargerSalonsRecents();
-  if (!navigator.geolocation) return;
-  const banniere = document.getElementById('bandeau-geoloc');
-  banniere.style.display = 'flex';
+  const position = positionEnregistree();
+  if (position) {
+    await afficherSalonsPres(position.latitude, position.longitude);
+    return;
+  }
+  await afficherSalonsRecents();
+  if (!navigator.geolocation) {
+    afficherFormulaireVille();
+    return;
+  }
+  document.getElementById('bandeau-geoloc').style.display = 'flex';
   document.getElementById('bouton-geoloc').addEventListener('click', demanderGeolocalisation);
 }
 

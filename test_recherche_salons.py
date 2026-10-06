@@ -23,7 +23,11 @@ assert _salon_complet(salon) is True
 assert _salon_complet(salon_vide) is False
 
 for requete in ("belle etoile", "bele étoile", "belle etoil"):
-    assert _score_pertinence(_normaliser(requete), salon) >= SEUIL_PERTINENCE, requete
-assert _score_pertinence(_normaliser("xyz"), salon) < SEUIL_PERTINENCE
+    assert max(_score_pertinence(_normaliser(requete), salon)) >= SEUIL_PERTINENCE, requete
+assert max(_score_pertinence(_normaliser("xyz"), salon)) < SEUIL_PERTINENCE
+
+# tri par pertinence : le nom passe avant la ville avant le code postal
+score_nom, score_ville, score_cp = _score_pertinence(_normaliser("paris"), salon)
+assert score_ville == 1.0 and score_nom < score_ville
 
 print("OK — toutes les assertions ont passé.")
