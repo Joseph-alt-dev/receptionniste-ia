@@ -37,6 +37,7 @@ class Salon(Base):
     numero_twilio = Column(String(32), unique=True)  # nullable tant que pas de ligne Twilio
     google_calendar_id = Column(String(255))  # "primary" une fois connecté via OAuth (ou fixe pour le salon de démo)
     google_refresh_token = Column(Text)  # chiffré (Fernet), jamais en clair — voir backend/crypto.py
+    google_compte_email = Column(String(255))  # adresse du compte Google connecté, récupérée à la connexion OAuth
     calendrier_connecte = Column(Boolean, nullable=False, default=False)
     est_demo = Column(Boolean, nullable=False, default=False)
     horaires = Column(Text, nullable=False)  # JSON : {"lundi": null, "mardi": {"ouverture": "09:00", "fermeture": "19:00"}, ...}

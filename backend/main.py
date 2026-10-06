@@ -174,6 +174,7 @@ def _salon_to_dict(salon: Salon, db: Session) -> dict:
         "numero_twilio": salon.numero_twilio,
         "est_demo": salon.est_demo,
         "calendrier_connecte": salon.calendrier_connecte,
+        "google_compte_email": salon.google_compte_email,
         "horaires": json.loads(salon.horaires),
         "fermetures_exceptionnelles": json.loads(salon.fermetures_exceptionnelles),
         "prestations": json.loads(salon.prestations),

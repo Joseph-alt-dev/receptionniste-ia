@@ -93,6 +93,7 @@ class SalonOut(SalonBase):
     numero_twilio: str | None = None
     est_demo: bool
     calendrier_connecte: bool
+    google_compte_email: str | None = None
     photos: list[str] = Field(default_factory=list)
     adresse_complete: str = ""
     latitude: float | None = None

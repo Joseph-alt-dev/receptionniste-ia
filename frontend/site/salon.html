@@ -67,7 +67,12 @@
       <div class="section-card">
         <h3 style="margin-top:0">Google Agenda</h3>
         <p style="margin: 0 0 0.75rem">Statut : <span id="statut-agenda" class="badge"></span></p>
+        <p id="compte-agenda" style="margin: 0 0 0.75rem; display:none"></p>
         <a id="lien-connexion-agenda" href="#"><button type="button">Connecter mon Google Agenda</button></a>
+        <div id="actions-agenda-connecte" style="display:none">
+          <button type="button" id="btn-changer-compte-agenda">Changer de compte Google</button>
+          <button type="button" id="btn-deconnecter-agenda">Déconnecter</button>
+        </div>
       </div>
 
       <div class="section-card">
@@ -296,15 +301,39 @@ async function charger() {
 
   const statut = document.getElementById('statut-agenda');
   const lien = document.getElementById('lien-connexion-agenda');
+  const compteAgenda = document.getElementById('compte-agenda');
+  const actionsAgendaConnecte = document.getElementById('actions-agenda-connecte');
   if (salon.calendrier_connecte) {
     statut.textContent = 'Connecté ✓';
     statut.className = 'badge badge-ok';
     lien.style.display = 'none';
+    compteAgenda.textContent = `Compte connecté : ${salon.google_compte_email || 'inconnu'}`;
+    compteAgenda.style.display = 'block';
+    actionsAgendaConnecte.style.display = 'block';
   } else {
     statut.textContent = 'Non connecté';
     statut.className = 'badge badge-off';
+    lien.style.display = '';
     lien.href = `/api/oauth/google/authorize?salon_id=${salon.id}`;
+    compteAgenda.style.display = 'none';
+    actionsAgendaConnecte.style.display = 'none';
   }
+
+  document.getElementById('btn-changer-compte-agenda').onclick = () => {
+    location.href = `/api/oauth/google/authorize?salon_id=${salon.id}&reconnexion=true`;
+  };
+  document.getElementById('btn-deconnecter-agenda').onclick = async () => {
+    if (!confirm('Déconnecter ce compte Google ? Les réservations ne seront plus synchronisées.')) return;
+    const res = await fetch(`/api/oauth/google/deconnecter?salon_id=${salon.id}`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      afficherMessage('Erreur lors de la déconnexion du compte Google.');
+      return;
+    }
+    charger();
+  };
 
   rendreHoraires(salon.horaires);
   fermetures = salon.fermetures_exceptionnelles || [];
