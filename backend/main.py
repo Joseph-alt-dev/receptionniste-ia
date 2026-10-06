@@ -5,6 +5,7 @@ import io
 import json
 import mimetypes
 import re
+import time
 import unicodedata
 import uuid
 from math import asin, cos, radians, sin, sqrt
@@ -514,6 +515,24 @@ def admin_supprimer_compte(compte_id: int, admin: Compte = Depends(get_current_a
     return {"ok": True}
 
 
+# ponytail: limiteur en mémoire mono-process, même compromis que check_login_rate_limit
+# (backend/auth.py) — suffisant pour le MVP, à remplacer par un store partagé (Redis)
+# si plusieurs instances tournent un jour derrière un load balancer.
+_chat_messages_par_ip: dict[str, list[float]] = {}
+CHAT_MAX_LONGUEUR_MESSAGE = 500
+CHAT_MAX_MESSAGES = 30
+CHAT_FENETRE_SECONDES = 600
+CHAT_MAX_ECHANGES = 40
+
+
+def _chat_rate_limit_depasse(ip: str) -> bool:
+    now = time.time()
+    messages = [t for t in _chat_messages_par_ip.get(ip, []) if now - t < CHAT_FENETRE_SECONDES]
+    messages.append(now)
+    _chat_messages_par_ip[ip] = messages
+    return len(messages) > CHAT_MAX_MESSAGES
+
+
 @app.websocket("/chat/ws")
 async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get_db)):
     salon = db.get(Salon, salon_id)
@@ -523,9 +542,11 @@ async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get
         await websocket.close()
         return
     db.expunge(salon)
+    ip = websocket.client.host if websocket.client else "inconnu"
 
     # une conversation par connexion : aucune mémoire partagée entre deux clients
     conversation = ConversationTexte(salon, canal="chat")
+    nb_echanges = 0
     try:
         await websocket.send_json({"role": "info", "nom_salon": salon.nom})
         reponse = await conversation.tour("[Le client vient d'ouvrir le chat. Présente-toi brièvement.]")
@@ -535,6 +556,26 @@ async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get
             texte = (data.get("message") or "").strip()
             if not texte:
                 continue
+            if len(texte) > CHAT_MAX_LONGUEUR_MESSAGE:
+                await websocket.send_json({
+                    "role": "error",
+                    "content": f"Message trop long (max {CHAT_MAX_LONGUEUR_MESSAGE} caractères).",
+                })
+                continue
+            if _chat_rate_limit_depasse(ip):
+                await websocket.send_json({
+                    "role": "error",
+                    "content": "Trop de messages envoyés, merci de patienter quelques minutes avant de réessayer.",
+                })
+                continue
+            nb_echanges += 1
+            if nb_echanges > CHAT_MAX_ECHANGES:
+                await websocket.send_json({
+                    "role": "assistant",
+                    "content": "Cette conversation est longue, merci d'en démarrer une nouvelle pour continuer.",
+                })
+                await websocket.close()
+                return
             reponse = await conversation.tour(texte)
             await websocket.send_json({"role": "assistant", "content": reponse})
     except WebSocketDisconnect:
