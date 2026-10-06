@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Salon</title>
-<link rel="stylesheet" href="/site/style.css?v=2">
+<link rel="stylesheet" href="/site/style.css?v=3">
 <style>
   body { padding: 0 0 6rem; }
 
@@ -230,7 +230,7 @@ function afficherMessage(texte) {
 }
 
 function etoilesHtml(note, nombreAvis) {
-  if (note === null || note === undefined) return '<span class="note-vide">Pas encore noté</span>';
+  if (note === null || note === undefined) return '<span class="badge-nouveau">Nouveau</span>';
   const pct = Math.max(0, Math.min(100, (note / 5) * 100));
   return `<div class="note-inline">
     <div class="etoiles">★★★★★<span style="width:${pct}%">★★★★★</span></div>

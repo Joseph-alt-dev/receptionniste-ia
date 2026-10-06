@@ -1,9 +1,11 @@
 import datetime as dt
+import difflib
 import hashlib
 import io
 import json
 import mimetypes
 import re
+import unicodedata
 import uuid
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
@@ -228,6 +230,39 @@ def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * rayon_terre_km * asin(sqrt(a))
 
 
+def _salon_complet(salon: Salon) -> bool:
+    """Un salon n'est listé publiquement que s'il a de quoi afficher une fiche utile."""
+    adresse_ok = bool(salon.numero_et_rue and salon.code_postal and salon.ville)
+    horaires_ok = any(json.loads(salon.horaires).values())
+    prestations_ok = any(items for items in json.loads(salon.prestations).values())
+    return adresse_ok and horaires_ok and prestations_ok
+
+
+def _normaliser(texte: str) -> str:
+    sans_accents = unicodedata.normalize("NFKD", texte).encode("ascii", "ignore").decode("ascii")
+    return sans_accents.lower().strip()
+
+
+def _score_pertinence(texte_normalise: str, salon: Salon) -> float:
+    """0..1 : correspondance exacte/partielle en priorité, sinon similarité
+    tolérante à 1-2 fautes de frappe (difflib) sur le nom, la ville, le code postal."""
+    meilleur = 0.0
+    for champ in (salon.nom, salon.ville, salon.code_postal):
+        if not champ:
+            continue
+        champ_normalise = _normaliser(champ)
+        if texte_normalise in champ_normalise:
+            return 1.0
+        ratio = difflib.SequenceMatcher(None, texte_normalise, champ_normalise).ratio()
+        for mot in champ_normalise.split():
+            ratio = max(ratio, difflib.SequenceMatcher(None, texte_normalise, mot).ratio())
+        meilleur = max(meilleur, ratio)
+    return meilleur
+
+
+SEUIL_PERTINENCE = 0.6  # ponytail: tolère ~1-2 fautes de frappe sur un nom de salon
+
+
 @app.get("/api/salons/recherche", response_model=list[SalonRechercheResultat])
 def rechercher_salons(
     texte: str | None = None,
@@ -236,15 +271,15 @@ def rechercher_salons(
     tri: str | None = None,
     db: Session = Depends(get_db),
 ):
-    requete = db.query(Salon)
-    if texte:
-        motif = f"%{texte.strip()}%"
-        requete = requete.filter((Salon.nom.ilike(motif)) | (Salon.ville.ilike(motif)))
-    if tri == "recent":
-        requete = requete.order_by(Salon.id.desc())  # ponytail: pas de colonne cree_le sur Salon, id décroissant comme proxy de récence
+    salons = [s for s in db.query(Salon).order_by(Salon.id.desc()).all() if _salon_complet(s)]
+
+    texte_normalise = _normaliser(texte) if texte else None
+    scores = {s.id: _score_pertinence(texte_normalise, s) for s in salons} if texte_normalise else {}
+    if texte_normalise:
+        salons = [s for s in salons if scores[s.id] >= SEUIL_PERTINENCE]
 
     resultats = []
-    for salon in requete.all():
+    for salon in salons:
         note_moyenne, nombre_avis = _avis_stats(salon.id, db)
         photos = json.loads(salon.photos)
         distance_km = None
@@ -258,10 +293,13 @@ def rechercher_salons(
             "nombre_avis": nombre_avis,
             "photo_principale": f"/uploads/salons/{salon.id}/{photos[0]}" if photos else None,
             "distance_km": distance_km,
+            "_pertinence": scores.get(salon.id, 0.0),
         })
 
-    tri_effectif = tri or ("distance" if latitude is not None and longitude is not None else "note")
-    if tri_effectif == "note":
+    tri_effectif = tri or ("distance" if latitude is not None and longitude is not None else "pertinence" if texte_normalise else "note")
+    if tri_effectif == "pertinence":
+        resultats.sort(key=lambda r: -r["_pertinence"])
+    elif tri_effectif == "note":
         resultats.sort(key=lambda r: (r["note_moyenne"] is None, -(r["note_moyenne"] or 0)))
     elif tri_effectif == "distance":
         resultats.sort(key=lambda r: (r["distance_km"] is None, r["distance_km"] or 0))

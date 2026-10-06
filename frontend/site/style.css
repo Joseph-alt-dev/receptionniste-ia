@@ -200,6 +200,10 @@ tbody tr:last-child { border-bottom: none; }
 .note-inline .valeur { font-weight: 700; color: var(--ink); }
 .note-inline .nb-avis { color: var(--muted); }
 .note-vide { font-size: 0.85rem; color: var(--muted); }
+.badge-nouveau {
+  display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px;
+  font-size: 0.76rem; font-weight: 700; background: var(--primary-light); color: var(--primary);
+}
 
 .badge-statut { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.65rem; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
 .badge-statut::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
