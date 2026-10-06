@@ -47,22 +47,19 @@ def _decrire_maintenant() -> str:
     )
 
 
-def _prochaine_occurrence(jour: int, mois: int, annee: int | None, aujourdhui: dt.date) -> tuple[dt.date, bool]:
+LIMITE_JOURS_RESERVATION = 90  # on ne réserve jamais plus loin que ça dans le futur
+
+
+def _resoudre_jour_mois(jour: int, mois: int, annee: int | None, aujourdhui: dt.date) -> dt.date:
     """Résout jour/mois/année (donnés par le client) en date calendaire complète.
 
-    Si l'année est omise, prend la prochaine occurrence à venir (cette année si
-    elle n'est pas encore passée, sinon l'année prochaine) : le client qui dit
-    "le 1er octobre" sans préciser l'année veut la prochaine, jamais une date passée.
+    Si l'année est omise, prend l'année en cours : ne bascule JAMAIS silencieusement
+    sur l'année prochaine si cette date est déjà passée cette année, pour que le
+    client qui dit "le 1er octobre" après le 1er octobre se fasse dire clairement
+    que c'est passé plutôt que de se retrouver avec un rendez-vous dans un an.
     Lève ValueError si jour/mois/année ne forment pas une date valide.
-
-    Renvoie (date_résolue, année_déduite).
     """
-    if annee is not None:
-        return dt.date(annee, mois, jour), False
-    candidate = dt.date(aujourdhui.year, mois, jour)
-    if candidate < aujourdhui:
-        candidate = dt.date(aujourdhui.year + 1, mois, jour)
-    return candidate, True
+    return dt.date(annee if annee is not None else aujourdhui.year, mois, jour)
 
 
 def _prochain_jour_semaine(jour_semaine: str, aujourdhui: dt.date) -> dt.date:
@@ -143,14 +140,20 @@ def construire_system_prompt(salon: Salon, canal: str = "telephone") -> str:
         "systématiquement l'outil resoudre_date pour ça avant de proposer ou "
         "confirmer quoi que ce soit, y compris pour des expressions relatives "
         "(\"demain\", \"samedi prochain\", \"lundi\"...). Si le client donne une date "
-        "calendaire sans préciser l'année, ne devine pas l'année toi-même : "
-        "laisse-la vide dans l'appel à resoudre_date, l'outil choisira "
-        "automatiquement la prochaine occurrence à venir. Si resoudre_date indique "
-        "que la date est passée, dis-le poliment et propose la prochaine date "
-        "possible. Si resoudre_date répond a_avance_dune_annee=true, informe le "
-        "client que cette date est déjà passée cette année et précise l'année de "
-        "la date proposée. Ne propose et ne confirme jamais un rendez-vous à une "
-        "date passée ou un jour où le salon est fermé. "
+        "calendaire sans préciser l'année, ne devine pas l'année toi-même : laisse-la "
+        "vide dans l'appel à resoudre_date. Si resoudre_date répond est_passee=true, "
+        "ne bascule JAMAIS silencieusement sur l'année suivante : dis clairement au "
+        "client que cette date est déjà passée (\"Le 1er octobre est déjà passé, "
+        "souhaitez-vous une autre date ?\") et propose les prochains créneaux "
+        "disponibles. Ne réserve pour l'année suivante que si le client précise "
+        "explicitement l'année ou confirme sans ambiguïté après ta relance. Si "
+        "resoudre_date répond trop_loin_pour_reserver=true, dis poliment que tu ne "
+        "peux pas réserver à plus de 90 jours à l'avance et propose une date plus "
+        "proche. Avant de confirmer tout rendez-vous, répète toujours la date "
+        "complète avec son jour de semaine (ex : \"mercredi 7 octobre 2026 à 14h\") "
+        "pour que le client puisse corriger une erreur de compréhension. Ne propose "
+        "et ne confirme jamais un rendez-vous à une date passée, à plus de 90 jours, "
+        "ou un jour où le salon est fermé. "
         f"Horaires d'ouverture : {description_horaires}. "
         f"Catégories de prestations : {categories}. "
         "Quand un client pose une question sur les tarifs ou une prestation, "
@@ -284,7 +287,6 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             annee: L'année, UNIQUEMENT si le client l'a explicitement précisée.
         """
         aujourdhui = dt.datetime.now(PARIS_TZ).date()
-        annee_deduite = False
 
         if decalage_jours is not None:
             date_resolue = aujourdhui + dt.timedelta(days=decalage_jours)
@@ -299,7 +301,7 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             date_resolue = _prochain_jour_semaine(jour_semaine, aujourdhui)
         elif jour is not None and mois is not None:
             try:
-                date_resolue, annee_deduite = _prochaine_occurrence(jour, mois, annee, aujourdhui)
+                date_resolue = _resoudre_jour_mois(jour, mois, annee, aujourdhui)
             except ValueError:
                 await params.result_callback({"valide": False, "message": "Cette date n'existe pas."})
                 return
@@ -310,20 +312,12 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             })
             return
 
-        # annee_deduite pousse toujours vers une date future : ce flag indique que
-        # la date "naturelle" (même année) était déjà passée, pour que le modèle
-        # le signale au client au lieu de glisser silencieusement à l'an prochain.
-        a_avance_dune_annee = (
-            annee_deduite and dt.date(aujourdhui.year, mois, jour) < aujourdhui
-        )
-
         await params.result_callback({
             "valide": True,
             "date": date_resolue.isoformat(),
             "jour_semaine": JOURS[date_resolue.weekday()],
-            "annee_deduite": annee_deduite,
-            "a_avance_dune_annee": a_avance_dune_annee,
             "est_passee": date_resolue < aujourdhui,
+            "trop_loin_pour_reserver": date_resolue > aujourdhui + dt.timedelta(days=LIMITE_JOURS_RESERVATION),
             "ouvert": _raison_fermeture(date_resolue, horaires, fermetures) is None,
             "raison_fermeture": _raison_fermeture(date_resolue, horaires, fermetures),
         })
@@ -442,6 +436,13 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             await params.result_callback({
                 "succes": False,
                 "message": f"Le {date} à {heure} est déjà passé, propose une date future.",
+            })
+            return
+
+        if jour_obj > dt.datetime.now(PARIS_TZ).date() + dt.timedelta(days=LIMITE_JOURS_RESERVATION):
+            await params.result_callback({
+                "succes": False,
+                "message": f"Impossible de réserver à plus de {LIMITE_JOURS_RESERVATION} jours à l'avance, propose une date plus proche.",
             })
             return
 
