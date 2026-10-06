@@ -213,15 +213,14 @@ def construire_system_prompt(salon: Salon, canal: str = "telephone") -> str:
 def construire_client_calendrier(salon: Salon):
     """Renvoie (service_google, calendar_id), ou (None, None) si aucun calendrier n'est utilisable.
 
-    Le salon de démo garde son accès par compte de service ; les autres salons
-    passent par leur refresh_token OAuth (déchiffré) une fois calendrier_connecte=True.
+    Le propriétaire qui a connecté son propre compte Google (calendrier_connecte=True,
+    refresh_token présent) passe TOUJOURS en priorité par son refresh_token OAuth, même
+    si le salon est aussi marqué est_demo : sinon ses réservations partiraient dans
+    l'agenda du compte de service, invisible pour lui (bug constaté le 6 oct 2026 sur
+    Belle Étoile, marqué est_demo=True mais connecté à un vrai compte Google).
+    Le compte de service (google-credentials.json) ne sert donc que de repli pour le
+    salon de démo tant qu'aucun propriétaire n'a connecté son propre agenda.
     """
-    if salon.est_demo:
-        credentials = GoogleServiceCredentials.from_service_account_file(
-            str(GOOGLE_CREDENTIALS_FILE), scopes=["https://www.googleapis.com/auth/calendar"]
-        )
-        return build_google_service("calendar", "v3", credentials=credentials), salon.google_calendar_id
-
     if salon.calendrier_connecte and salon.google_refresh_token:
         reponse = requests.post(
             "https://oauth2.googleapis.com/token",
@@ -237,6 +236,12 @@ def construire_client_calendrier(salon: Salon):
             credentials = GoogleOAuthCredentials(token=reponse.json()["access_token"])
             return build_google_service("calendar", "v3", credentials=credentials), salon.google_calendar_id
         logger.error(f"Échec du rafraîchissement du token Google pour le salon {salon.id} : {reponse.text}")
+
+    if salon.est_demo:
+        credentials = GoogleServiceCredentials.from_service_account_file(
+            str(GOOGLE_CREDENTIALS_FILE), scopes=["https://www.googleapis.com/auth/calendar"]
+        )
+        return build_google_service("calendar", "v3", credentials=credentials), salon.google_calendar_id
 
     return None, None
 
@@ -504,12 +509,18 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             logger.info(f"Appel Google Calendar events.insert calendarId={calendar_id!r} body={corps}")
 
             evenement = service.events().insert(calendarId=calendar_id, body=corps).execute()
-            logger.info(f"Réponse Google Calendar : id={evenement['id']} start={evenement['start']}")
+            logger.info(f"Réponse Google Calendar : id={evenement['id']} calendarId={calendar_id!r} start={evenement['start']}")
+
+            # on relit l'événement après coup : Rachel ne doit dire "confirmé" que si
+            # l'événement existe vraiment dans l'agenda, pas seulement si insert() n'a
+            # pas levé d'exception.
+            verification = service.events().get(calendarId=calendar_id, eventId=evenement["id"]).execute()
+            logger.info(f"Événement {verification['id']} relu avec succès (calendarId={calendar_id!r}).")
 
             await params.result_callback({
                 "succes": True,
                 "message": f"Rendez-vous confirmé pour {nom_client} le {date} à {heure}.",
-                "id_evenement": evenement["id"],
+                "id_evenement": verification["id"],
             })
         except HttpError as e:
             logger.error(f"Erreur Google Calendar (reserver_creneau) : {e}")
