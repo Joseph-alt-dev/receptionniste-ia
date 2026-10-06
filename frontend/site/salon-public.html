@@ -129,10 +129,11 @@
   .panneau-chat .saisie input { flex: 1; }
 
   @media (max-width: 520px) {
+    body { padding-bottom: calc(7rem + env(safe-area-inset-bottom)); }
     .hero-salon { height: 220px; }
     .barre-infos { margin: -1.25rem 0.75rem 1.5rem; }
     .contenu { padding: 0 0.75rem; }
-    .bouton-flottant { right: 0.9rem; bottom: 0.9rem; }
+    .bouton-flottant { right: 0.9rem; bottom: calc(0.9rem + env(safe-area-inset-bottom)); }
     .panneau-chat { right: 0.5rem; bottom: 4.5rem; width: calc(100vw - 1rem); }
   }
 </style>

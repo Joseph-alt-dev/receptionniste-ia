@@ -223,3 +223,4 @@ google-credentials.json
 .DS_Store
 /uploads/
 .serena/
+/backups/
