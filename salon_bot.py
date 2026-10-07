@@ -7,6 +7,8 @@ conversation texte par tool-calling manuel. Ne dépend pas de pipecat/audio.
 import datetime as dt
 import json
 import os
+import time
+import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -16,7 +18,7 @@ from google.oauth2.service_account import Credentials as GoogleServiceCredential
 from googleapiclient.discovery import build as build_google_service
 from googleapiclient.errors import HttpError
 from loguru import logger
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, BadRequestError, RateLimitError
 from pipecat.adapters.schemas.direct_function import DirectFunctionWrapper
 from pipecat.services.llm_service import FunctionCallParams
 
@@ -34,6 +36,14 @@ MOIS = [
 ]  # index = month - 1
 GOOGLE_CREDENTIALS_FILE = Path(__file__).parent / "google-credentials.json"  # compte de service du salon de démo
 MODELE_LLM = "openai/gpt-oss-20b"
+MAX_RELANCES_TOOL_USE_FAILED = 2  # nombre de relances sur une erreur tool_use_failed avant d'abandonner le tour
+MESSAGE_ERREUR_LLM = "Désolée, j'ai eu un petit souci, pouvez-vous répéter ?"
+
+
+def _nettoyer_markdown(texte: str) -> str:
+    """Retire le formatage Markdown que le chat n'affiche pas tel quel
+    (défense en profondeur : le prompt interdit déjà à Rachel d'en produire)."""
+    return texte.replace("**", "")
 
 
 def _decrire_maintenant() -> str:
@@ -129,7 +139,10 @@ def construire_system_prompt(salon: Salon, canal: str = "telephone") -> str:
         "Reste brève et naturelle, comme dans une vraie conversation téléphonique, "
         "sans emojis ni formatage puisque tes réponses seront lues à voix haute. "
         if canal == "telephone" else
-        "Reste brève et naturelle, comme dans une vraie conversation écrite, sans emojis. "
+        "Reste brève et naturelle, comme dans une vraie conversation écrite, sans "
+        "emojis et sans AUCUN formatage Markdown (pas d'astérisques **, pas de "
+        "dièses #, pas de tirets de liste) : écris uniquement en texte simple, "
+        "même pour mettre une date ou une heure en valeur. "
     )
 
     return (
@@ -156,25 +169,53 @@ def construire_system_prompt(salon: Salon, canal: str = "telephone") -> str:
         "ou un jour où le salon est fermé. "
         f"Horaires d'ouverture : {description_horaires}. "
         f"Catégories de prestations : {categories}. "
-        "Quand un client pose une question sur les tarifs ou une prestation, "
-        "identifie d'abord sa catégorie (demande-le si ce n'est pas clair), puis "
-        "utilise consulter_tarifs pour obtenir les tarifs exacts avant de répondre. "
-        "Ne jamais inventer un prix. "
-        "Tu aides aussi les clients à prendre rendez-vous en utilisant les fonctions "
-        "disponibles : résous toujours la date avec resoudre_date, vérifie la "
-        "disponibilité avec verifier_disponibilite avant de proposer un créneau, "
-        "puis confirme la réservation avec reserver_creneau une fois que le client "
-        "a choisi un créneau ET donné son prénom (obligatoire : demande-le s'il ne "
-        "l'a pas donné). "
+        "Quand un client pose une question sur les tarifs sans nommer de prestation "
+        "précise, identifie d'abord sa catégorie (demande-le si ce n'est pas clair), "
+        "puis utilise consulter_tarifs pour obtenir les tarifs exacts avant de "
+        "répondre. Si le client a déjà cité le nom précis d'une prestation (ex : "
+        "\"un Taper\"), ne demande JAMAIS sa catégorie homme/femme/enfant : cette "
+        "prestation est retrouvée automatiquement quelle que soit sa catégorie "
+        "(par preparer_reservation notamment). Ne demande la catégorie que si "
+        "c'est réellement nécessaire pour lever une ambiguïté sur la prestation "
+        "visée, jamais par défaut. Ne jamais inventer un prix. "
+        "Tu aides aussi les clients à prendre rendez-vous, en suivant TOUJOURS ce "
+        "déroulé strict et dans cet ordre : 1) la prestation précise (demande-la "
+        "si ce n'est pas clair ; si le client a déjà nommé une prestation précise, "
+        "ne demande JAMAIS sa catégorie homme/femme/enfant, elle n'est pas "
+        "nécessaire pour réserver et sera vérifiée automatiquement) ; 2) la date "
+        "(résous-la avec resoudre_date, ne calcule jamais "
+        "toi-même) ; 3) l'heure (vérifie la disponibilité avec "
+        "verifier_disponibilite) ; 4) le prénom du client (obligatoire, demande-le "
+        "s'il ne l'a pas donné). Une fois ces quatre informations réunies, appelle "
+        "preparer_reservation : elle ne crée encore rien dans l'agenda, elle valide "
+        "tout et te renvoie un récapitulatif. Dis EXACTEMENT ce récapitulatif au "
+        "client et attends sa réponse, sans rien ajouter ni enlever. S'il répond "
+        "oui sans ambiguïté, appelle alors confirmer_reservation avec l'id_attente "
+        "reçu : c'est seulement à cet instant, et seulement si confirmer_reservation "
+        "réussit, que le rendez-vous existe vraiment. Ne dis JAMAIS \"confirmé\" ou "
+        "\"réservé\" avant que confirmer_reservation ait réussi. En cas de succès, "
+        "transmets au client EXACTEMENT le message renvoyé par confirmer_reservation, "
+        "sans rien y ajouter, et ne redemande plus jamais la prestation après ça. Si "
+        "le client répond non ou veut changer un détail, ne confirme rien : demande "
+        "ce qu'il faut modifier puis repars de preparer_reservation avec les "
+        "informations corrigées. Si confirmer_reservation échoue parce que "
+        "l'identifiant a expiré (le client a trop attendu pour répondre), relance "
+        "simplement preparer_reservation avec les mêmes informations pour "
+        "revérifier la disponibilité, puis repropose le récapitulatif. N'appelle "
+        "JAMAIS confirmer_reservation sans avoir d'abord obtenu un récapitulatif de "
+        "preparer_reservation dans ce même échange. "
         "Si le client veut annuler un rendez-vous existant, utilise annuler_rendez_vous. "
         "Si l'une de ces fonctions de calendrier répond qu'elle n'est pas disponible "
         "pour une raison technique, informe poliment le client qu'une personne du "
         "salon le rappellera pour confirmer, sans jamais mentionner de problème "
         "technique. Si elle refuse pour une date/heure invalide, passée, un jour "
-        "fermé ou un créneau déjà occupé, propose une alternative au client sans "
-        "jamais insister sur ce créneau. "
+        "fermé, une prestation introuvable ou un créneau déjà occupé, propose une "
+        "alternative au client sans jamais insister sur ce créneau. "
         "Tu ne réponds QUE sur le salon : rendez-vous, horaires, prestations, "
-        "tarifs, adresse. Si le client te parle d'autre chose (culture générale, "
+        "tarifs, adresse. Un message qui mentionne le nom d'une prestation du "
+        "salon, même si tu ne la reconnais pas encore, n'est JAMAIS hors sujet : "
+        "vérifie-la avec consulter_tarifs avant de décider qu'elle n'existe pas ou "
+        "que la demande est hors sujet. Si le client te parle d'autre chose (culture générale, "
         "devoirs, code, politique, conseils médicaux ou juridiques, avis sur "
         "d'autres sujets, etc.), ne réponds jamais à cette question, même "
         "partiellement : dis poliment et brièvement quelque chose comme « Désolée, "
@@ -251,13 +292,94 @@ MESSAGE_CALENDRIER_INDISPONIBLE = (
     "votre demande, une personne du salon vous rappellera pour confirmer."
 )
 
+DUREE_RESERVATION_EN_ATTENTE_SECONDES = 600  # durée de validité d'un id_attente (preparer_reservation)
+
+
+def _formater_date_fr(date_obj: dt.date) -> str:
+    """Date complète en français avec son jour de semaine, pour les récapitulatifs."""
+    return f"{JOURS[date_obj.weekday()]} {date_obj.day} {MOIS[date_obj.month - 1]} {date_obj.year}"
+
+
+def _trouver_prestation(prestations: dict, nom: str) -> str | None:
+    """Cherche une prestation par son nom (insensible à la casse/espaces) dans
+    toutes les catégories du salon, renvoie son nom exact ou None si absente.
+    """
+    nom = (nom or "").strip().lower()
+    for categorie in prestations.values():
+        for nom_exact in categorie:
+            if nom_exact.strip().lower() == nom:
+                return nom_exact
+    return None
+
+
+def _creneaux_du_jour(date: str, horaires: dict, fermetures: set[str]) -> list[dt.datetime] | None:
+    """Créneaux d'1h ouverts ce jour-là, ou None si le salon est fermé."""
+    jour = dt.date.fromisoformat(date)
+    if _raison_fermeture(jour, horaires, fermetures):
+        return None
+    plage = horaires.get(JOURS[jour.weekday()])
+    if not plage:
+        return None
+    ouverture = dt.time.fromisoformat(plage["ouverture"])
+    fermeture = dt.time.fromisoformat(plage["fermeture"])
+    creneaux = []
+    heure = dt.datetime.combine(jour, ouverture, tzinfo=PARIS_TZ)
+    fin = dt.datetime.combine(jour, fermeture, tzinfo=PARIS_TZ)
+    while heure + dt.timedelta(hours=1) <= fin:
+        creneaux.append(heure)
+        heure += dt.timedelta(hours=1)
+    return creneaux or None
+
+
+def _valider_creneau(jour_obj: dt.date, heure_obj: dt.time, horaires: dict, fermetures: set[str]) -> str | None:
+    """Renvoie un message d'erreur si la date/heure n'est pas réservable (passée,
+    trop lointaine, salon fermé ou hors horaires), sinon None.
+    """
+    debut = dt.datetime.combine(jour_obj, heure_obj, tzinfo=PARIS_TZ)
+    if debut < dt.datetime.now(PARIS_TZ):
+        return f"Le {jour_obj.isoformat()} à {heure_obj.strftime('%H:%M')} est déjà passé, propose une date future."
+    if jour_obj > dt.datetime.now(PARIS_TZ).date() + dt.timedelta(days=LIMITE_JOURS_RESERVATION):
+        return f"Impossible de réserver à plus de {LIMITE_JOURS_RESERVATION} jours à l'avance, propose une date plus proche."
+    raison = _raison_fermeture(jour_obj, horaires, fermetures)
+    if raison:
+        return f"Le salon est fermé le {jour_obj.isoformat()} ({raison})."
+    plage = horaires[JOURS[jour_obj.weekday()]]
+    ouverture = dt.time.fromisoformat(plage["ouverture"])
+    fermeture = dt.time.fromisoformat(plage["fermeture"])
+    fin = (debut + dt.timedelta(hours=1)).time()
+    if heure_obj < ouverture or fin > fermeture:
+        return f"Le salon est ouvert de {plage['ouverture']} à {plage['fermeture']} le {jour_obj.isoformat()}, choisis un autre horaire."
+    return None
+
+
+def _creneau_occupe(service, calendar_id: str, debut: dt.datetime, fin: dt.datetime) -> bool:
+    """Interroge le calendrier Google pour savoir si ce créneau est déjà pris."""
+    occupations = service.freebusy().query(body={
+        "timeMin": debut.isoformat(),
+        "timeMax": fin.isoformat(),
+        "timeZone": "Europe/Paris",
+        "items": [{"id": calendar_id}],
+    }).execute()["calendars"][calendar_id]["busy"]
+    return bool(occupations)
+
 
 def construire_tools(salon: Salon, service, calendar_id: str | None):
-    """Fabrique les 5 fonctions-outils, fermées sur les données réelles du salon."""
+    """Fabrique les fonctions-outils, fermées sur service/calendar_id (stables
+    pour la conversation) mais JAMAIS sur les prestations/horaires/fermetures
+    du salon : chaque outil les relit fraîchement depuis la base à chaque
+    appel via _salon_actuel(), pour qu'une modification faite dans le
+    dashboard (ex : ajout d'une prestation) soit prise en compte immédiatement,
+    sans redémarrer le serveur ni rouvrir la conversation.
+    """
 
-    prestations = json.loads(salon.prestations)
-    fermetures = set(json.loads(salon.fermetures_exceptionnelles))
-    horaires = json.loads(salon.horaires)
+    salon_id = salon.id
+    reservations_en_attente: dict[str, dict] = {}  # id_attente -> {prestation, date, heure, nom_client, expire_a}
+
+    def _salon_actuel() -> Salon:
+        salon_frais = charger_salon(salon_id)
+        if salon_frais is None:
+            raise RuntimeError(f"Salon {salon_id} introuvable.")
+        return salon_frais
 
     async def consulter_tarifs(params: FunctionCallParams, categorie: str):
         """Renvoie la liste complète des prestations et tarifs du salon pour
@@ -266,6 +388,7 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
         Args:
             categorie: La catégorie du client, parmi celles du salon (ex : "femme", "homme", "enfant").
         """
+        prestations = json.loads(_salon_actuel().prestations)
         categorie = categorie.lower().strip()
         if categorie not in prestations:
             await params.result_callback({
@@ -312,6 +435,9 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             mois: Le mois correspondant (1-12), si jour est renseigné.
             annee: L'année, UNIQUEMENT si le client l'a explicitement précisée.
         """
+        salon_frais = _salon_actuel()
+        horaires = json.loads(salon_frais.horaires)
+        fermetures = set(json.loads(salon_frais.fermetures_exceptionnelles))
         aujourdhui = dt.datetime.now(PARIS_TZ).date()
 
         if decalage_jours is not None:
@@ -348,24 +474,6 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             "raison_fermeture": _raison_fermeture(date_resolue, horaires, fermetures),
         })
 
-    def _creneaux_du_jour(date: str) -> list[dt.datetime] | None:
-        """Créneaux d'1h ouverts ce jour-là, ou None si le salon est fermé."""
-        jour = dt.date.fromisoformat(date)
-        if _raison_fermeture(jour, horaires, fermetures):
-            return None
-        plage = horaires.get(JOURS[jour.weekday()])
-        if not plage:
-            return None
-        ouverture = dt.time.fromisoformat(plage["ouverture"])
-        fermeture = dt.time.fromisoformat(plage["fermeture"])
-        creneaux = []
-        heure = dt.datetime.combine(jour, ouverture, tzinfo=PARIS_TZ)
-        fin = dt.datetime.combine(jour, fermeture, tzinfo=PARIS_TZ)
-        while heure + dt.timedelta(hours=1) <= fin:
-            creneaux.append(heure)
-            heure += dt.timedelta(hours=1)
-        return creneaux or None
-
     async def verifier_disponibilite(params: FunctionCallParams, date: str):
         """Vérifie les créneaux disponibles à une date donnée.
 
@@ -383,8 +491,12 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
         if jour_obj < dt.datetime.now(PARIS_TZ).date():
             await params.result_callback({"disponible": False, "message": f"Le {date} est déjà passé."})
             return
+
+        salon_frais = _salon_actuel()
+        horaires = json.loads(salon_frais.horaires)
+        fermetures = set(json.loads(salon_frais.fermetures_exceptionnelles))
         try:
-            creneaux = _creneaux_du_jour(date)
+            creneaux = _creneaux_du_jour(date, horaires, fermetures)
             if creneaux is None:
                 raison = _raison_fermeture(jour_obj, horaires, fermetures) or "aucun créneau ce jour-là"
                 await params.result_callback({
@@ -426,28 +538,49 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
                 "message": "Une erreur technique empêche de consulter le calendrier pour le moment.",
             })
 
-    async def reserver_creneau(
-        params: FunctionCallParams, date: str, heure: str, nom_client: str, prestation: str = ""
+    async def preparer_reservation(
+        params: FunctionCallParams, prestation: str, date: str, heure: str, nom_client: str
     ):
-        """Réserve un créneau pour un client, à une date et une heure précises.
+        """Vérifie qu'une réservation est possible et prépare un récapitulatif à
+        faire valider par le client, SANS créer quoi que ce soit dans l'agenda.
+        À utiliser uniquement après avoir obtenu la prestation précise, la date,
+        l'heure ET le prénom du client. N'appelle confirmer_reservation qu'après
+        un "oui" explicite du client au récapitulatif renvoyé ici.
 
         Args:
-            date: La date du rendez-vous au format AAAA-MM-JJ.
+            prestation: Le nom exact de la prestation choisie par le client,
+                parmi celles du salon (vérifie avec consulter_tarifs si besoin).
+            date: La date du rendez-vous au format AAAA-MM-JJ (résolue avec resoudre_date).
             heure: L'heure du rendez-vous au format HH:MM.
-            nom_client: Le nom du client qui prend rendez-vous.
-            prestation: La prestation demandée, si elle est connue (ex : "coupe femme").
+            nom_client: Le prénom du client qui prend rendez-vous.
         """
-        logger.info(f"reserver_creneau appelé avec date={date!r} heure={heure!r} nom_client={nom_client!r} prestation={prestation!r}")
+        logger.info(f"preparer_reservation appelé avec prestation={prestation!r} date={date!r} heure={heure!r} nom_client={nom_client!r}")
         nom_client = (nom_client or "").strip()
         if not nom_client:
             await params.result_callback({
                 "succes": False,
-                "message": "Le prénom du client est obligatoire pour réserver : demande-le avant de confirmer.",
+                "message": "Le prénom du client est obligatoire : demande-le avant de préparer la réservation.",
             })
             return
+
+        salon_frais = _salon_actuel()
+        prestations = json.loads(salon_frais.prestations)
+        horaires = json.loads(salon_frais.horaires)
+        fermetures = set(json.loads(salon_frais.fermetures_exceptionnelles))
+
+        nom_prestation = _trouver_prestation(prestations, prestation)
+        if nom_prestation is None:
+            noms_connus = sorted({nom for categorie in prestations.values() for nom in categorie})
+            await params.result_callback({
+                "succes": False,
+                "message": f"Je ne trouve pas de prestation nommée {prestation!r}. Prestations disponibles : {', '.join(noms_connus)}.",
+            })
+            return
+
         if service is None:
             await params.result_callback({"succes": False, "message": MESSAGE_CALENDRIER_INDISPONIBLE})
             return
+
         try:
             jour_obj = dt.date.fromisoformat(date)
             heure_obj = dt.time.fromisoformat(heure)
@@ -455,54 +588,105 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             await params.result_callback({"succes": False, "message": "Date ou heure invalide."})
             return
 
+        erreur = _valider_creneau(jour_obj, heure_obj, horaires, fermetures)
+        if erreur:
+            await params.result_callback({"succes": False, "message": erreur})
+            return
+
         debut = dt.datetime.combine(jour_obj, heure_obj, tzinfo=PARIS_TZ)
         fin = debut + dt.timedelta(hours=1)
-
-        if debut < dt.datetime.now(PARIS_TZ):
-            await params.result_callback({
-                "succes": False,
-                "message": f"Le {date} à {heure} est déjà passé, propose une date future.",
-            })
-            return
-
-        if jour_obj > dt.datetime.now(PARIS_TZ).date() + dt.timedelta(days=LIMITE_JOURS_RESERVATION):
-            await params.result_callback({
-                "succes": False,
-                "message": f"Impossible de réserver à plus de {LIMITE_JOURS_RESERVATION} jours à l'avance, propose une date plus proche.",
-            })
-            return
-
-        raison = _raison_fermeture(jour_obj, horaires, fermetures)
-        if raison:
-            await params.result_callback({"succes": False, "message": f"Le salon est fermé le {date} ({raison})."})
-            return
-
-        plage = horaires[JOURS[jour_obj.weekday()]]
-        ouverture, fermeture = dt.time.fromisoformat(plage["ouverture"]), dt.time.fromisoformat(plage["fermeture"])
-        if heure_obj < ouverture or fin.time() > fermeture:
-            await params.result_callback({
-                "succes": False,
-                "message": f"Le salon est ouvert de {plage['ouverture']} à {plage['fermeture']} le {date}, choisis un autre horaire.",
-            })
-            return
-
         try:
-            occupations = service.freebusy().query(body={
-                "timeMin": debut.isoformat(),
-                "timeMax": fin.isoformat(),
-                "timeZone": "Europe/Paris",
-                "items": [{"id": calendar_id}],
-            }).execute()["calendars"][calendar_id]["busy"]
-            if occupations:
+            if _creneau_occupe(service, calendar_id, debut, fin):
                 await params.result_callback({
                     "succes": False,
                     "message": f"Le créneau de {heure} le {date} est déjà occupé, propose un autre horaire.",
                 })
                 return
+        except HttpError as e:
+            logger.error(f"Erreur Google Calendar (preparer_reservation) : {e}")
+            await params.result_callback({
+                "succes": False,
+                "message": "Une erreur technique empêche de vérifier le calendrier pour le moment.",
+            })
+            return
 
-            titre = f"{prestation} - {nom_client}" if prestation else nom_client
+        id_attente = uuid.uuid4().hex
+        reservations_en_attente[id_attente] = {
+            "prestation": nom_prestation,
+            "date": date,
+            "heure": heure,
+            "nom_client": nom_client,
+            "expire_a": time.time() + DUREE_RESERVATION_EN_ATTENTE_SECONDES,
+        }
+        jour_texte = _formater_date_fr(jour_obj)
+        await params.result_callback({
+            "succes": True,
+            "id_attente": id_attente,
+            "recapitulatif": (
+                f"Je récapitule : {nom_prestation}, {jour_texte} à {heure}, au nom de "
+                f"{nom_client}. Je confirme la réservation ?"
+            ),
+        })
+
+    async def confirmer_reservation(params: FunctionCallParams, id_attente: str):
+        """Crée réellement le rendez-vous à partir d'une réservation préparée par
+        preparer_reservation. N'appelle cette fonction qu'après un "oui" explicite
+        du client au récapitulatif reçu. Si le client répond non ou veut changer
+        un détail, n'appelle pas cette fonction : repars de preparer_reservation.
+
+        Args:
+            id_attente: L'identifiant renvoyé par preparer_reservation.
+        """
+        attente = reservations_en_attente.pop(id_attente, None)
+        if attente is None:
+            await params.result_callback({
+                "succes": False,
+                "message": "Aucune réservation en attente avec cet identifiant, reprends avec preparer_reservation.",
+            })
+            return
+        if time.time() > attente["expire_a"]:
+            await params.result_callback({
+                "succes": False,
+                "message": "Cette réservation en attente a expiré, relance preparer_reservation pour revérifier la disponibilité.",
+            })
+            return
+        if service is None:
+            await params.result_callback({"succes": False, "message": MESSAGE_CALENDRIER_INDISPONIBLE})
+            return
+
+        salon_frais = _salon_actuel()
+        prestations = json.loads(salon_frais.prestations)
+        horaires = json.loads(salon_frais.horaires)
+        fermetures = set(json.loads(salon_frais.fermetures_exceptionnelles))
+        prestation, date, heure, nom_client = attente["prestation"], attente["date"], attente["heure"], attente["nom_client"]
+
+        if _trouver_prestation(prestations, prestation) is None:
+            await params.result_callback({
+                "succes": False,
+                "message": f"La prestation {prestation!r} n'est plus disponible, reprends avec preparer_reservation.",
+            })
+            return
+
+        jour_obj, heure_obj = dt.date.fromisoformat(date), dt.time.fromisoformat(heure)
+        erreur = _valider_creneau(jour_obj, heure_obj, horaires, fermetures)
+        if erreur:
+            await params.result_callback({"succes": False, "message": erreur})
+            return
+
+        debut = dt.datetime.combine(jour_obj, heure_obj, tzinfo=PARIS_TZ)
+        fin = debut + dt.timedelta(hours=1)
+        try:
+            # on revérifie juste avant de créer : le créneau a pu être pris pendant
+            # que le client réfléchissait au récapitulatif (jusqu'à 10 minutes).
+            if _creneau_occupe(service, calendar_id, debut, fin):
+                await params.result_callback({
+                    "succes": False,
+                    "message": f"Le créneau de {heure} le {date} vient d'être pris, propose un autre horaire.",
+                })
+                return
+
             corps = {
-                "summary": titre,
+                "summary": f"{prestation} - {nom_client}",
                 "start": {"dateTime": debut.isoformat(), "timeZone": "Europe/Paris"},
                 "end": {"dateTime": fin.isoformat(), "timeZone": "Europe/Paris"},
             }
@@ -511,19 +695,23 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             evenement = service.events().insert(calendarId=calendar_id, body=corps).execute()
             logger.info(f"Réponse Google Calendar : id={evenement['id']} calendarId={calendar_id!r} start={evenement['start']}")
 
-            # on relit l'événement après coup : Rachel ne doit dire "confirmé" que si
+            # on relit l'événement après coup : Rachel ne doit dire "réservé" que si
             # l'événement existe vraiment dans l'agenda, pas seulement si insert() n'a
             # pas levé d'exception.
             verification = service.events().get(calendarId=calendar_id, eventId=evenement["id"]).execute()
             logger.info(f"Événement {verification['id']} relu avec succès (calendarId={calendar_id!r}).")
 
+            jour_texte = _formater_date_fr(jour_obj)
             await params.result_callback({
                 "succes": True,
-                "message": f"Rendez-vous confirmé pour {nom_client} le {date} à {heure}.",
+                "message": (
+                    f"C'est réservé : {prestation}, {jour_texte} à {heure}, au nom de "
+                    f"{nom_client}. Puis-je vous aider pour autre chose ?"
+                ),
                 "id_evenement": verification["id"],
             })
         except HttpError as e:
-            logger.error(f"Erreur Google Calendar (reserver_creneau) : {e}")
+            logger.error(f"Erreur Google Calendar (confirmer_reservation) : {e}")
             await params.result_callback({
                 "succes": False,
                 "message": "Une erreur technique empêche de confirmer la réservation pour le moment.",
@@ -572,7 +760,10 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
                 "message": "Une erreur technique empêche l'annulation pour le moment.",
             })
 
-    return [resoudre_date, verifier_disponibilite, reserver_creneau, annuler_rendez_vous, consulter_tarifs, escalader_vers_humain]
+    return [
+        resoudre_date, verifier_disponibilite, preparer_reservation, confirmer_reservation,
+        annuler_rendez_vous, consulter_tarifs, escalader_vers_humain,
+    ]
 
 
 async def escalader_vers_humain(params: FunctionCallParams, raison: str):
@@ -639,25 +830,50 @@ class ConversationTexte:
         self._client = AsyncOpenAI(api_key=os.environ["GROQ_API_KEY"], base_url="https://api.groq.com/openai/v1")
         self.messages = [{"role": "system", "content": construire_system_prompt(salon, canal)}]
 
+    async def _completer_avec_relances(self):
+        """Appelle l'API du LLM avec des relances bornées sur une erreur
+        tool_use_failed (name leak Harmony, argument manquant...), et abandonne
+        proprement (sans jamais lever) sur un rate limit, un timeout ou une
+        erreur de connexion : une panne passagère de l'API ne doit jamais faire
+        planter la conversation. Renvoie None si la réponse reste inobtenable.
+        """
+        for tentative in range(MAX_RELANCES_TOOL_USE_FAILED + 1):
+            try:
+                reponse = await self._client.chat.completions.create(
+                    model=MODELE_LLM, messages=self.messages, tools=self._outils_openai,
+                )
+                return reponse.choices[0].message
+            except BadRequestError as e:
+                logger.error(f"Erreur LLM tool_use_failed (tentative {tentative + 1}/{MAX_RELANCES_TOOL_USE_FAILED + 1}) : {e}")
+                if tentative >= MAX_RELANCES_TOOL_USE_FAILED:
+                    return None
+            except (RateLimitError, APITimeoutError, APIConnectionError) as e:
+                logger.error(f"Erreur LLM ({type(e).__name__}) : {e}")
+                return None
+        return None
+
     async def tour(self, message_utilisateur: str | None, on_appel_outil=None) -> str:
         """Envoie un message utilisateur (None pour relancer sans nouveau message),
         exécute les éventuels appels d'outils, renvoie la réponse finale du bot.
         """
-        # recalculée à chaque tour pour que la date/heure injectée reste fraîche
+        # rechargé à chaque tour pour que les prestations/horaires/fermetures
+        # affichés dans le prompt reflètent les derniers changements du dashboard
+        salon_frais = charger_salon(self.salon.id)
+        if salon_frais is not None:
+            self.salon = salon_frais
         self.messages[0] = {"role": "system", "content": construire_system_prompt(self.salon, self.canal)}
         if message_utilisateur is not None:
             self.messages.append({"role": "user", "content": message_utilisateur})
 
         while True:
-            reponse = await self._client.chat.completions.create(
-                model=MODELE_LLM, messages=self.messages, tools=self._outils_openai,
-            )
-            message = reponse.choices[0].message
+            message = await self._completer_avec_relances()
+            if message is None:
+                return MESSAGE_ERREUR_LLM
             self.messages.append(message.model_dump(exclude_none=True))
 
             if not message.tool_calls:
                 logger.debug("Aucun appel d'outil ce tour : le LLM a répondu directement en texte.")
-                return message.content or ""
+                return _nettoyer_markdown(message.content or "")
 
             for appel in message.tool_calls:
                 arguments = json.loads(appel.function.arguments or "{}")
@@ -665,4 +881,6 @@ class ConversationTexte:
                 resultat = await appeler_outil(self._outils_par_nom[appel.function.name], arguments)
                 if on_appel_outil:
                     on_appel_outil(appel.function.name, arguments, resultat)
-                self.messages.append({"role": "tool", "tool_call_id": appel.id, "content": json.dumps(resultat)})
+                self.messages.append(
+                    {"role": "tool", "tool_call_id": appel.id, "content": json.dumps(resultat, ensure_ascii=False)}
+                )

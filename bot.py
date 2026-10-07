@@ -2,9 +2,10 @@ import os
 
 from dotenv import load_dotenv #permet de lire le fichier .env qui contient les clés API
 from loguru import logger
+from openai import APIConnectionError, APITimeoutError, BadRequestError, RateLimitError
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame, LLMUpdateSettingsFrame
+from pipecat.frames.frames import LLMRunFrame, LLMTextFrame, LLMUpdateSettingsFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -23,7 +24,46 @@ from pipecat.workers.runner import WorkerRunner
 
 from backend.database import SessionLocal
 from backend.models import Salon
-from salon_bot import charger_salon, charger_salon_demo, construire_client_calendrier, construire_system_prompt, construire_tools
+from salon_bot import (
+    MAX_RELANCES_TOOL_USE_FAILED,
+    MESSAGE_ERREUR_LLM,
+    charger_salon,
+    charger_salon_demo,
+    construire_client_calendrier,
+    construire_system_prompt,
+    construire_tools,
+)
+
+
+async def _flux_vide():
+    """Générateur asynchrone vide : satisfait l'interface attendue par pipecat
+    (itération + close) quand une erreur LLM coupe le tour sans réponse."""
+    if False:
+        yield
+
+
+class LLMServiceResiliente(OpenAILLMService):
+    """Comme OpenAILLMService, mais ne laisse jamais une erreur de l'API LLM
+    (tool_use_failed, rate limit, timeout, connexion) couper un tour sans
+    réponse parlée : relance tool_use_failed quelques fois, puis dit une
+    excuse au client plutôt que de rester silencieuse (voir bug du 7 oct 2026 :
+    push_error est un signal interne au pipeline, jamais entendu par le client).
+    """
+
+    async def get_chat_completions(self, context: LLMContext):
+        for tentative in range(MAX_RELANCES_TOOL_USE_FAILED + 1):
+            try:
+                return await super().get_chat_completions(context)
+            except BadRequestError as e:
+                logger.error(f"Erreur LLM tool_use_failed (tentative {tentative + 1}/{MAX_RELANCES_TOOL_USE_FAILED + 1}) : {e}")
+                if tentative >= MAX_RELANCES_TOOL_USE_FAILED:
+                    break
+            except (RateLimitError, APIConnectionError, APITimeoutError) as e:
+                logger.error(f"Erreur LLM ({type(e).__name__}) : {e}")
+                break
+
+        await self.push_frame(LLMTextFrame(MESSAGE_ERREUR_LLM))
+        return _flux_vide()
 
 load_dotenv(override=True) #lis .env et injecte chaque clé dans os.environ le override=True siginfie que si la variable (ailleurs une autre variable du nom de clé groq)existe déjà on l'écrase avec le .env
 
@@ -54,7 +94,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments, salon:
 
     service, calendar_id = construire_client_calendrier(salon)
 
-    llm = OpenAILLMService(
+    llm = LLMServiceResiliente(
         api_key=os.environ["GROQ_API_KEY"],
         base_url="https://api.groq.com/openai/v1",
         model="openai/gpt-oss-20b",
@@ -93,8 +133,12 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments, salon:
 
     @user_aggregator.event_handler("on_user_turn_stopped")
     async def on_user_turn_stopped(aggregator, strategy, message):
-        # recalculé à chaque tour : la date/heure du prompt système ne doit
-        # jamais rester figée sur l'instant où l'appel a commencé
+        # rechargé à chaque tour : la date/heure et les catégories de prestations
+        # du prompt système ne doivent jamais rester figées sur le début de l'appel
+        nonlocal salon
+        salon_frais = charger_salon(salon.id)
+        if salon_frais is not None:
+            salon = salon_frais
         nouveau_prompt = construire_system_prompt(salon, canal="telephone")
         await worker.queue_frames(
             [LLMUpdateSettingsFrame(delta=OpenAILLMService.Settings(system_instruction=nouveau_prompt))]
