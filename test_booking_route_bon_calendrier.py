@@ -22,13 +22,6 @@ AUJOURDHUI = dt.datetime.now(salon_bot.PARIS_TZ).date()
 DATE_FUTURE = (AUJOURDHUI + dt.timedelta(days=5)).isoformat()
 
 
-class FauxReponseOAuth:
-    ok = True
-
-    def json(self):
-        return {"access_token": "faux-access-token"}
-
-
 class FauxRequeteExecutable:
     def __init__(self, resultat):
         self._resultat = resultat
@@ -79,7 +72,6 @@ service_compte_service = FauxService("compte_service")
 
 async def main():
     with (
-        patch("salon_bot.requests.post", return_value=FauxReponseOAuth()),
         patch(
             "salon_bot.build_google_service",
             side_effect=lambda *_a, credentials, **_k: (

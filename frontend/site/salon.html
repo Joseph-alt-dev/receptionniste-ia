@@ -303,7 +303,14 @@ async function charger() {
   const lien = document.getElementById('lien-connexion-agenda');
   const compteAgenda = document.getElementById('compte-agenda');
   const actionsAgendaConnecte = document.getElementById('actions-agenda-connecte');
-  if (salon.calendrier_connecte) {
+  if (salon.calendrier_connecte && salon.google_reconnexion_necessaire) {
+    statut.textContent = 'Reconnexion nécessaire ⚠';
+    statut.className = 'badge badge-off';
+    lien.style.display = 'none';
+    compteAgenda.textContent = `Le jeton Google n'est plus valide (compte : ${salon.google_compte_email || 'inconnu'}). Reconnectez-vous pour que Rachel puisse de nouveau réserver.`;
+    compteAgenda.style.display = 'block';
+    actionsAgendaConnecte.style.display = 'block';
+  } else if (salon.calendrier_connecte) {
     statut.textContent = 'Connecté ✓';
     statut.className = 'badge badge-ok';
     lien.style.display = 'none';

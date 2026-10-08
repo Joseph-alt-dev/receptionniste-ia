@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import requests
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials as GoogleOAuthCredentials
 from google.oauth2.service_account import Credentials as GoogleServiceCredentials
 from googleapiclient.discovery import build as build_google_service
@@ -261,22 +261,24 @@ def construire_client_calendrier(salon: Salon):
     Belle Étoile, marqué est_demo=True mais connecté à un vrai compte Google).
     Le compte de service (google-credentials.json) ne sert donc que de repli pour le
     salon de démo tant qu'aucun propriétaire n'a connecté son propre agenda.
+
+    Si le jeton OAuth connecté s'avère invalide à l'usage (révoqué, expiré en
+    cours de conversation...), ça ne doit JAMAIS retomber silencieusement sur
+    le compte de service : voir la RefreshError attrapée dans les outils
+    ci-dessous, qui marque le salon "reconnexion Google nécessaire" au lieu de
+    basculer. On fournit le refresh_token à Credentials (plutôt que de
+    rafraîchir nous-mêmes un jeton figé) pour que la librairie Google puisse
+    se rafraîchir elle-même si l'accès expire pendant une longue conversation.
     """
     if salon.calendrier_connecte and salon.google_refresh_token:
-        reponse = requests.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "client_id": GOOGLE_OAUTH_CLIENT_ID,
-                "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
-                "refresh_token": dechiffrer(salon.google_refresh_token),
-                "grant_type": "refresh_token",
-            },
-            timeout=10,
+        credentials = GoogleOAuthCredentials(
+            token=None,
+            refresh_token=dechiffrer(salon.google_refresh_token),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=GOOGLE_OAUTH_CLIENT_ID,
+            client_secret=GOOGLE_OAUTH_CLIENT_SECRET,
         )
-        if reponse.ok:
-            credentials = GoogleOAuthCredentials(token=reponse.json()["access_token"])
-            return build_google_service("calendar", "v3", credentials=credentials), salon.google_calendar_id
-        logger.error(f"Échec du rafraîchissement du token Google pour le salon {salon.id} : {reponse.text}")
+        return build_google_service("calendar", "v3", credentials=credentials), salon.google_calendar_id
 
     if salon.est_demo:
         credentials = GoogleServiceCredentials.from_service_account_file(
@@ -285,6 +287,19 @@ def construire_client_calendrier(salon: Salon):
         return build_google_service("calendar", "v3", credentials=credentials), salon.google_calendar_id
 
     return None, None
+
+
+def _definir_reconnexion_necessaire(salon_id: int, necessaire: bool) -> None:
+    """Persiste l'état "reconnexion Google nécessaire" affiché dans le tableau
+    de bord (jamais le jeton ni le secret, seulement ce booléen)."""
+    db = SessionLocal()
+    try:
+        salon = db.get(Salon, salon_id)
+        if salon and salon.google_reconnexion_necessaire != necessaire:
+            salon.google_reconnexion_necessaire = necessaire
+            db.commit()
+    finally:
+        db.close()
 
 
 MESSAGE_CALENDRIER_INDISPONIBLE = (
@@ -537,6 +552,13 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
                 "disponible": False,
                 "message": "Une erreur technique empêche de consulter le calendrier pour le moment.",
             })
+        except RefreshError:
+            logger.error(f"Jeton Google invalide pour le salon {salon.id} (verifier_disponibilite) : reconnexion nécessaire.")
+            _definir_reconnexion_necessaire(salon.id, True)
+            await params.result_callback({
+                "disponible": False,
+                "message": "Une erreur technique empêche de consulter le calendrier pour le moment.",
+            })
 
     async def preparer_reservation(
         params: FunctionCallParams, prestation: str, date: str, heure: str, nom_client: str
@@ -604,6 +626,14 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
                 return
         except HttpError as e:
             logger.error(f"Erreur Google Calendar (preparer_reservation) : {e}")
+            await params.result_callback({
+                "succes": False,
+                "message": "Une erreur technique empêche de vérifier le calendrier pour le moment.",
+            })
+            return
+        except RefreshError:
+            logger.error(f"Jeton Google invalide pour le salon {salon.id} (preparer_reservation) : reconnexion nécessaire.")
+            _definir_reconnexion_necessaire(salon.id, True)
             await params.result_callback({
                 "succes": False,
                 "message": "Une erreur technique empêche de vérifier le calendrier pour le moment.",
@@ -725,6 +755,13 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
                 "succes": False,
                 "message": "Une erreur technique empêche de confirmer la réservation pour le moment.",
             })
+        except RefreshError:
+            logger.error(f"Jeton Google invalide pour le salon {salon.id} (confirmer_reservation) : reconnexion nécessaire.")
+            _definir_reconnexion_necessaire(salon.id, True)
+            await params.result_callback({
+                "succes": False,
+                "message": "Une erreur technique empêche de confirmer la réservation pour le moment.",
+            })
 
     async def annuler_rendez_vous(params: FunctionCallParams, date: str, heure: str, nom_client: str):
         """Annule un rendez-vous existant à une date et une heure précises.
@@ -764,6 +801,13 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
             })
         except HttpError as e:
             logger.error(f"Erreur Google Calendar (annuler_rendez_vous) : {e}")
+            await params.result_callback({
+                "succes": False,
+                "message": "Une erreur technique empêche l'annulation pour le moment.",
+            })
+        except RefreshError:
+            logger.error(f"Jeton Google invalide pour le salon {salon.id} (annuler_rendez_vous) : reconnexion nécessaire.")
+            _definir_reconnexion_necessaire(salon.id, True)
             await params.result_callback({
                 "succes": False,
                 "message": "Une erreur technique empêche l'annulation pour le moment.",

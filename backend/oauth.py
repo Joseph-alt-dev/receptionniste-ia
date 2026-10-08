@@ -74,6 +74,7 @@ def _deconnecter_calendrier(salon: Salon, db: Session) -> None:
     salon.google_calendar_id = None
     salon.google_compte_email = None
     salon.calendrier_connecte = False
+    salon.google_reconnexion_necessaire = False
     db.commit()
 
 
@@ -137,6 +138,7 @@ def callback(code: str, state: str, db: Session = Depends(get_db)):
     salon.google_refresh_token = chiffrer(tokens["refresh_token"])
     salon.google_calendar_id = "primary"  # alias Google : calendrier principal du compte qui vient de se connecter
     salon.calendrier_connecte = True
+    salon.google_reconnexion_necessaire = False
 
     try:
         credentials = GoogleOAuthCredentials(token=tokens["access_token"])
