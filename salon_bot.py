@@ -709,6 +709,15 @@ def construire_tools(salon: Salon, service, calendar_id: str | None):
                     f"{nom_client}. Puis-je vous aider pour autre chose ?"
                 ),
                 "id_evenement": verification["id"],
+                # champs structurés pour que l'appelant (ex : fenêtre de confirmation
+                # côté chat web) construise son propre récapitulatif sans parser le
+                # texte ni faire confiance au LLM : seule une création réelle et
+                # vérifiée dans l'agenda produit ces champs.
+                "prestation": prestation,
+                "date": date,
+                "date_affichage": jour_texte,
+                "heure": heure,
+                "nom_client": nom_client,
             })
         except HttpError as e:
             logger.error(f"Erreur Google Calendar (confirmer_reservation) : {e}")

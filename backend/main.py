@@ -548,10 +548,36 @@ async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get
     # une conversation par connexion : aucune mémoire partagée entre deux clients
     conversation = ConversationTexte(salon, canal="chat")
     nb_echanges = 0
+
+    reservation_confirmee = None
+
+    def _capturer_reservation_confirmee(nom_outil, arguments, resultat):
+        # ne construit le message de confirmation qu'à partir d'une création
+        # réellement vérifiée dans l'agenda (voir confirmer_reservation), jamais
+        # à partir du texte écrit par le LLM.
+        nonlocal reservation_confirmee
+        if nom_outil == "confirmer_reservation" and resultat.get("succes"):
+            reservation_confirmee = resultat
+
+    async def _tour_et_confirmation(texte_utilisateur):
+        nonlocal reservation_confirmee
+        reservation_confirmee = None
+        reponse = await conversation.tour(texte_utilisateur, on_appel_outil=_capturer_reservation_confirmee)
+        await websocket.send_json({"role": "assistant", "content": reponse})
+        if reservation_confirmee is not None:
+            await websocket.send_json({
+                "type": "reservation_confirmee",
+                "salon": salon.nom,
+                "prestation": reservation_confirmee["prestation"],
+                "date": reservation_confirmee["date"],
+                "date_affichage": reservation_confirmee["date_affichage"],
+                "heure": reservation_confirmee["heure"],
+                "prenom": reservation_confirmee["nom_client"],
+            })
+
     try:
         await websocket.send_json({"role": "info", "nom_salon": salon.nom})
-        reponse = await conversation.tour("[Le client vient d'ouvrir le chat. Présente-toi brièvement.]")
-        await websocket.send_json({"role": "assistant", "content": reponse})
+        await _tour_et_confirmation("[Le client vient d'ouvrir le chat. Présente-toi brièvement.]")
         while True:
             data = await websocket.receive_json()
             texte = (data.get("message") or "").strip()
@@ -577,8 +603,7 @@ async def chat_ws(websocket: WebSocket, salon_id: int, db: Session = Depends(get
                 })
                 await websocket.close()
                 return
-            reponse = await conversation.tour(texte)
-            await websocket.send_json({"role": "assistant", "content": reponse})
+            await _tour_et_confirmation(texte)
     except WebSocketDisconnect:
         pass
 

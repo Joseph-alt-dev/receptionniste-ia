@@ -89,6 +89,7 @@
     </div>
   </div>
 
+<script src="reservation-modal.js?v=1"></script>
 <script>
 const salonId = new URLSearchParams(location.search).get("salon_id");
 const messagesEl = document.getElementById("messages");
@@ -118,6 +119,7 @@ if (!salonId) {
     typingEl.classList.remove("visible");
     if (data.nom_salon) nomSalonEl.textContent = data.nom_salon;
     if (data.role === "assistant" || data.role === "error") ajouterBulle(data.content, "bot");
+    if (data.type === "reservation_confirmee") afficherConfirmationReservation(data);
   });
 
   socket.addEventListener("close", () => { typingEl.classList.remove("visible"); });

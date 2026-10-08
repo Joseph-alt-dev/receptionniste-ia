@@ -260,7 +260,47 @@ tbody tr:last-child { border-bottom: none; }
   box-shadow: 0 8px 24px rgba(79, 70, 229, 0.4);
 }
 
+/* ---------- Modale de confirmation de réservation (chat) ---------- */
+
+.fond-modale-reservation {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 17, 27, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  z-index: 100;
+  animation: apparition-fond 0.18s ease;
+}
+@keyframes apparition-fond { from { opacity: 0; } to { opacity: 1; } }
+
+.modale-reservation {
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 2rem;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  animation: rise 0.25s ease both;
+}
+.modale-reservation h2 { margin: 0.75rem 0 1rem; font-size: 1.15rem; }
+
+.icone-validation { display: flex; justify-content: center; }
+.icone-validation svg { width: 56px; height: 56px; }
+.icone-validation circle,
+.icone-validation path { stroke: var(--success); stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+.recap-reservation { margin: 0 0 1.5rem; text-align: left; font-size: 0.9rem; }
+.recap-reservation dt { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.6rem; }
+.recap-reservation dt:first-child { margin-top: 0; }
+.recap-reservation dd { margin: 0.1rem 0 0; font-weight: 600; color: var(--ink); }
+
+.actions-modale-reservation { display: flex; flex-direction: column; gap: 0.6rem; }
+
 @media (max-width: 520px) {
   .card { padding: 1.5rem; }
   .jour-row { flex-wrap: wrap; }
+  .modale-reservation { padding: 1.5rem; }
 }
